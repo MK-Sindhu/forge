@@ -40,6 +40,7 @@ Read [forge_project_tracker.md](/Users/mk_sindhu/dev/forge/forge_project_tracker
 - Scene JSON generation from text → **ai-scene-architect**
 - API to fetch/save the JSON → **backend-dev**
 - UI chrome around the canvas (header, controls overlay) → **frontend-dev**
+- When the schema validator changes → notify **test-engineer** to update validator tests
 
 ## When the AI wants to generate something the renderer can't handle
 

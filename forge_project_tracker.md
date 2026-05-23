@@ -39,10 +39,11 @@ That's it. No multiplayer. No VR. No marketplace. No mobile app. No avatars beyo
 | Styling     | Tailwind CSS                    | Fast, no design system needed for MVP |
 | Backend     | Next.js API routes              | Monolith. One repo, one language, one deploy — solo-friendly. Migrate to a separate service later only if forced to. |
 | Database    | PostgreSQL on Neon              | Scene JSON fits JSONB cleanly. Neon: 3 GB free tier, scales to zero, branching gives every Vercel preview its own DB. |
+| ORM         | Drizzle                         | Plain SQL migrations (readable), TS-native schema, no codegen step, first-class Neon serverless driver. |
 | Storage     | Cloudflare R2                   | Thumbnails now, 3D assets later. |
 | AI          | Claude API (text → scene JSON)  | Already in the Anthropic ecosystem; TS SDK is first-class. |
 | Auth        | Clerk                           | Drop-in `<SignIn />`, social login + MFA free, 10k MAU free tier. Decoupled from DB so swappable. |
-| Deploy      | Vercel (frontend) + Railway (backend/db) | Free tiers, easy |
+| Deploy      | Vercel (full Next.js app)       | Single deploy — Vercel handles UI + API routes. DB is managed by Neon, not deployed by us. |
 
 ## 5. Core Abstraction — Scene JSON
 
@@ -83,14 +84,15 @@ _Format: date — decision — reasoning._
 - **2026-05-23** — Backend: Next.js API routes (monolith). Reason: solo dev, one language/repo/deploy. TS Anthropic SDK is sufficient — no need for a separate Python service.
 - **2026-05-23** — Database hosting: Neon. Reason: 3 GB free tier, scales to zero, branching gives preview deploys their own DB without extra config.
 - **2026-05-23** — Auth: Clerk. Reason: fastest path to working auth (drop-in `<SignIn />`), 10k MAU free tier, decoupled from Neon so each is independently swappable.
-- **2026-05-23** — ORM: _still open — Prisma vs Drizzle. Decide in Week 1 before writing schema._
+- **2026-05-23** — ORM: Drizzle. Reason: native fit with Neon's serverless driver (cold-start matters on Vercel), plain SQL migrations stay readable when things go wrong, no codegen step, TS schema with strong inference.
+- **2026-05-23** — Added `test-engineer` subagent. Reason: solo builder needs separation between code-writers and test-writers to keep tests unbiased. Spun up before most implementation exists so tests come from the spec, not the code.
 
 ## 8. Open Questions
 
 1. ~~**Backend: FastAPI or Next.js API routes?**~~ ✅ Resolved 2026-05-23 → Next.js API routes.
 2. ~~**Auth: Clerk / Supabase Auth / NextAuth / roll-own?**~~ ✅ Resolved 2026-05-23 → Clerk.
 3. ~~**Database hosting: Railway / Supabase / Neon?**~~ ✅ Resolved 2026-05-23 → Neon.
-4. **ORM: Prisma vs Drizzle?** — open. Decide in Week 1 before writing schema. Prisma: more mature, better docs, slower at runtime. Drizzle: lighter, type-safer, less hand-holding. _Lean: Drizzle (smaller surface, better serverless story on Neon)._
+4. ~~**ORM: Prisma vs Drizzle?**~~ ✅ Resolved 2026-05-23 → Drizzle.
 
 ## 9. Risks (active watch)
 

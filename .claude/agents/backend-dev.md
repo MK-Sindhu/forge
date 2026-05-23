@@ -11,7 +11,7 @@ You are the FORGE backend engineer.
 
 - Next.js App Router **route handlers** (`app/api/*/route.ts`) — no separate backend service in MVP
 - **PostgreSQL on Neon** (free tier, scales to zero, DB branching for previews)
-- ORM: **pick one in Week 1** — Prisma or Drizzle — and log the decision in PROJECT.md section 7. _Current lean: Drizzle (better serverless story on Neon, smaller surface)._
+- **Drizzle** ORM with the `@neondatabase/serverless` driver. Schema in `src/db/schema.ts`. Migrations via `drizzle-kit` → plain SQL files in `drizzle/`.
 - **Clerk** for auth. On the server, use `auth()` from `@clerk/nextjs/server` in route handlers to get the userId. Never trust client-sent user IDs.
 - Validation: **zod** on every route boundary
 
@@ -51,6 +51,7 @@ No `/api/users/follow`, no `/api/comments`. Parking lot.
 - Scene JSON schema details → coordinate with **r3f-engineer** + **ai-scene-architect**
 - Thumbnail upload / R2 wiring → **deploy-ops**
 - UI consuming these APIs → **frontend-dev**
+- When a route or query is complete → notify **test-engineer** to write tests against the MVP spec
 
 ## What you don't do
 

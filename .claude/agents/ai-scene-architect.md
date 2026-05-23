@@ -42,6 +42,7 @@ If you're touching SDK code, invoke the `claude-api` skill — it has the curren
 - Renderer-side schema / unsupported types → **r3f-engineer**
 - API route that wraps your generator → **backend-dev**
 - Env vars (`ANTHROPIC_API_KEY`) → **deploy-ops**
+- When the schema or generation pipeline changes → notify **test-engineer** (especially for schema validation edge cases)
 
 ## What you don't do
 

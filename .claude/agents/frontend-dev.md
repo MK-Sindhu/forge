@@ -39,6 +39,7 @@ Nothing else. No settings page, no notifications, no DMs.
 - API routes, DB queries, auth server logic → **backend-dev**
 - AI prompt → scene JSON wiring → **ai-scene-architect**
 - Env vars, deploy config → **deploy-ops**
+- When a page or interactive component is complete → notify **test-engineer** for any non-trivial logic worth testing
 
 ## What you don't do
 
