@@ -10,7 +10,7 @@ export default async function UploadPage() {
   return (
     <main className="mx-auto max-w-2xl px-4 py-12">
       <h1 className="text-3xl font-semibold tracking-tight">Upload a world</h1>
-      <p className="mt-2 text-neutral-600">
+      <p className="mt-2 text-neutral-600 dark:text-neutral-400">
         Share a 3D world you&apos;ve made. We accept .glb files up to 50 MB.
       </p>
       <UploadForm />

@@ -23,6 +23,13 @@ export async function GET() {
         { status: 400 },
       );
     }
-    throw err;
+    // Any other error is assumed to be a DB/infrastructure failure.
+    // We log it server-side but never expose the raw message to the client
+    // (it could leak schema details or connection strings).
+    console.error("[/api/me] unexpected error:", err);
+    return NextResponse.json(
+      { error: "Database temporarily unavailable, please try again" },
+      { status: 503 },
+    );
   }
 }

@@ -158,6 +158,28 @@ describe("GET /api/me", () => {
   });
 
   // Scenario 5 ----------------------------------------------------------------
+  it("returns 503 with a friendly message when the DB throws an unexpected error", async () => {
+    mockAuth.mockResolvedValue({ userId: "clerk_db_error_004" });
+    mockCurrentUser.mockResolvedValue({
+      id: "clerk_db_error_004",
+      username: "charlie",
+      emailAddresses: [{ emailAddress: "charlie@example.com" }],
+      imageUrl: null,
+    });
+    // SELECT throws a generic DB error (e.g. network timeout, connection refused).
+    mockSelectLimit.mockRejectedValue(new Error("connect ECONNREFUSED 127.0.0.1:5432"));
+
+    const response = await GET();
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: "Database temporarily unavailable, please try again",
+    });
+    // INSERT must never be reached.
+    expect(mockInsertReturning).not.toHaveBeenCalled();
+  });
+
+  // Scenario 6 ----------------------------------------------------------------
   it("returns 400 when the Clerk user has no email addresses, and does not insert", async () => {
     mockAuth.mockResolvedValue({ userId: "clerk_no_email_003" });
     // SELECT finds nothing — user does not exist in DB yet.

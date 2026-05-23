@@ -71,7 +71,7 @@ export default async function FeedPage() {
 // ---------------------------------------------------------------------------
 function NoThumbnail() {
   return (
-    <div className="flex h-full items-center justify-center text-sm text-neutral-400">
+    <div className="flex h-full items-center justify-center text-sm text-neutral-400 dark:text-neutral-600">
       No preview
     </div>
   );
@@ -83,10 +83,10 @@ function FeedCard({ world }: { world: FeedWorld }) {
   return (
     <Link
       href={`/world/${world.id}`}
-      className="group block overflow-hidden rounded-lg border border-neutral-200 transition hover:border-neutral-400"
+      className="group block overflow-hidden rounded-lg border border-neutral-200 transition hover:border-neutral-400 dark:border-neutral-800 dark:hover:border-neutral-600"
     >
       {/* Thumbnail — 16:9 cinematic ratio */}
-      <div className="relative aspect-video bg-neutral-100">
+      <div className="relative aspect-video bg-neutral-100 dark:bg-neutral-900">
         {thumbnailUrl ? (
           <Image
             src={thumbnailUrl}
@@ -94,7 +94,6 @@ function FeedCard({ world }: { world: FeedWorld }) {
             fill
             sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, (max-width: 1280px) 33vw, 25vw"
             className="object-cover"
-            unoptimized
           />
         ) : (
           <NoThumbnail />
@@ -103,10 +102,10 @@ function FeedCard({ world }: { world: FeedWorld }) {
 
       {/* Card body */}
       <div className="p-3">
-        <h2 className="line-clamp-2 text-sm font-medium text-neutral-900">
+        <h2 className="line-clamp-2 text-sm font-medium text-neutral-900 dark:text-neutral-100">
           {world.title}
         </h2>
-        <div className="mt-2 flex items-center gap-2 text-xs text-neutral-500">
+        <div className="mt-2 flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
           {world.user.avatarUrl && (
             <Image
               src={world.user.avatarUrl}
@@ -114,7 +113,6 @@ function FeedCard({ world }: { world: FeedWorld }) {
               height={20}
               className="rounded-full"
               alt=""
-              unoptimized
             />
           )}
           <span>{world.user.username}</span>
@@ -134,16 +132,16 @@ function FeedCard({ world }: { world: FeedWorld }) {
 // ---------------------------------------------------------------------------
 function EmptyState() {
   return (
-    <div className="rounded-lg border border-dashed border-neutral-300 py-24 text-center">
-      <p className="text-lg font-medium text-neutral-700">
+    <div className="rounded-lg border border-dashed border-neutral-300 py-24 text-center dark:border-neutral-700">
+      <p className="text-lg font-medium text-neutral-700 dark:text-neutral-300">
         No worlds yet — be the first.
       </p>
-      <p className="mt-2 text-sm text-neutral-500">
+      <p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400">
         Upload a .glb world you&apos;ve made.
       </p>
       <Link
         href="/upload"
-        className="mt-6 inline-block rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2"
+        className="mt-6 inline-block rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 dark:focus-visible:ring-neutral-100"
       >
         Upload a world
       </Link>

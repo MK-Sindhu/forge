@@ -33,7 +33,7 @@ export default async function WorldPage(
       {/* Header section: title, author, metadata */}
       <header className="mb-6">
         <h1 className="text-3xl font-semibold tracking-tight">{world.title}</h1>
-        <div className="mt-2 flex items-center gap-3 text-sm text-neutral-600">
+        <div className="mt-2 flex items-center gap-3 text-sm text-neutral-600 dark:text-neutral-400">
           {world.author.avatarUrl && (
             <Image
               src={world.author.avatarUrl}
@@ -41,14 +41,13 @@ export default async function WorldPage(
               width={32}
               height={32}
               className="rounded-full"
-              unoptimized // Avatars are from Clerk — bypass Next image optimizer for now
             />
           )}
           <span>
             by{" "}
             <a
               href={`/profile/${world.author.username}`}
-              className="font-medium text-neutral-900 hover:underline"
+              className="font-medium text-neutral-900 hover:underline dark:text-neutral-100"
             >
               {world.author.username}
             </a>
@@ -61,19 +60,19 @@ export default async function WorldPage(
       </header>
 
       {/* 3D viewer — fills a fixed-aspect container */}
-      <div className="aspect-video w-full overflow-hidden rounded-lg border border-neutral-200">
+      <div className="aspect-video w-full overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-800">
         <WorldViewerClient glbUrl={world.glbUrl} ariaLabel={`3D world: ${world.title}`} />
       </div>
 
       {/* Description (only if present) */}
       {world.description && (
         <section className="mt-6">
-          <p className="whitespace-pre-wrap text-neutral-700">{world.description}</p>
+          <p className="whitespace-pre-wrap text-neutral-700 dark:text-neutral-300">{world.description}</p>
         </section>
       )}
 
       {/* Stat row */}
-      <div className="mt-6 flex gap-6 text-sm text-neutral-600">
+      <div className="mt-6 flex gap-6 text-sm text-neutral-600 dark:text-neutral-400">
         <span>{world.likesCount} {world.likesCount === 1 ? "like" : "likes"}</span>
         <span>{world.views} {world.views === 1 ? "view" : "views"}</span>
       </div>

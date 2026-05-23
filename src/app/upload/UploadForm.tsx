@@ -490,16 +490,16 @@ export function UploadForm() {
     return (
       <div className="mb-3">
         <div className="flex justify-between text-sm mb-1">
-          <span className={status === "error" ? "text-red-600" : "text-neutral-700"}>
+          <span className={status === "error" ? "text-red-600 dark:text-red-400" : "text-neutral-700 dark:text-neutral-300"}>
             {label}
           </span>
           <span
             className={
               status === "error"
-                ? "text-red-600"
+                ? "text-red-600 dark:text-red-400"
                 : status === "done"
-                ? "text-green-600"
-                : "text-neutral-500"
+                ? "text-green-600 dark:text-green-400"
+                : "text-neutral-500 dark:text-neutral-400"
             }
           >
             {statusText}
@@ -535,14 +535,14 @@ export function UploadForm() {
           <h2 id="step1-heading" className="text-xl font-medium mb-1">
             Step 1 of 3 — Select your 3D model
           </h2>
-          <p className="text-sm text-neutral-500 mb-4">
+          <p className="text-sm text-neutral-500 dark:text-neutral-400 mb-4">
             Accepted formats: .glb, .gltf. Maximum size: 50 MB.
           </p>
 
           <div className="mb-4">
             <label
               htmlFor="glb-input"
-              className="block text-sm font-medium text-neutral-700 mb-1"
+              className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1"
             >
               3D model file
             </label>
@@ -551,7 +551,7 @@ export function UploadForm() {
               type="file"
               accept=".glb,.gltf,model/gltf-binary,model/gltf+json,application/octet-stream"
               onChange={handleGlbChange}
-              className="block w-full text-sm text-neutral-700 border border-neutral-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-neutral-900"
+              className="block w-full text-sm text-neutral-700 border border-neutral-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-neutral-900 dark:text-neutral-300 dark:border-neutral-700 dark:bg-neutral-900 dark:focus:ring-neutral-400"
               aria-describedby={glbError ? "glb-error" : undefined}
             />
             {glbError && (
@@ -562,9 +562,9 @@ export function UploadForm() {
           </div>
 
           {glbFile && (
-            <div className="mb-4 p-3 bg-neutral-100 rounded-md text-sm">
-              <p className="font-medium text-neutral-800">{glbFile.name}</p>
-              <p className="text-neutral-500">{formatBytes(glbFile.size)}</p>
+            <div className="mb-4 p-3 bg-neutral-100 dark:bg-neutral-800 rounded-md text-sm">
+              <p className="font-medium text-neutral-800 dark:text-neutral-200">{glbFile.name}</p>
+              <p className="text-neutral-500 dark:text-neutral-400">{formatBytes(glbFile.size)}</p>
             </div>
           )}
 
@@ -573,7 +573,7 @@ export function UploadForm() {
               type="button"
               onClick={handleGlbContinue}
               disabled={!glbFile}
-              className="px-5 py-2.5 rounded-md bg-neutral-900 text-white text-sm font-medium hover:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-5 py-2.5 rounded-md bg-neutral-900 text-white text-sm font-medium hover:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 dark:focus:ring-neutral-400"
             >
               Continue
             </button>
@@ -589,14 +589,14 @@ export function UploadForm() {
           <h2 id="step2-heading" className="text-xl font-medium mb-1">
             Step 2 of 3 — Add a thumbnail
           </h2>
-          <p className="text-sm text-neutral-500 mb-4">
+          <p className="text-sm text-neutral-500 dark:text-neutral-400 mb-4">
             Accepted formats: JPEG, PNG, WebP. Maximum size: 2 MB.
           </p>
 
           <div className="mb-4">
             <label
               htmlFor="thumbnail-input"
-              className="block text-sm font-medium text-neutral-700 mb-1"
+              className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1"
             >
               Thumbnail image
             </label>
@@ -605,7 +605,7 @@ export function UploadForm() {
               type="file"
               accept="image/jpeg,image/png,image/webp"
               onChange={handleThumbnailChange}
-              className="block w-full text-sm text-neutral-700 border border-neutral-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-neutral-900"
+              className="block w-full text-sm text-neutral-700 border border-neutral-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-neutral-900 dark:text-neutral-300 dark:border-neutral-700 dark:bg-neutral-900 dark:focus:ring-neutral-400"
               aria-describedby={thumbnailError ? "thumbnail-error" : undefined}
             />
             {thumbnailError && (
@@ -624,10 +624,10 @@ export function UploadForm() {
               <img
                 src={thumbnailPreview}
                 alt="Thumbnail preview"
-                className="max-h-48 rounded-md border border-neutral-200 object-cover"
+                className="max-h-48 rounded-md border border-neutral-200 dark:border-neutral-700 object-cover"
               />
               {thumbnailFile && (
-                <p className="mt-1 text-sm text-neutral-500">
+                <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
                   {thumbnailFile.name} — {formatBytes(thumbnailFile.size)}
                 </p>
               )}
@@ -638,7 +638,7 @@ export function UploadForm() {
             <button
               type="button"
               onClick={() => setStep("pick_glb")}
-              className="px-5 py-2.5 rounded-md border border-neutral-300 text-neutral-700 text-sm font-medium hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2"
+              className="px-5 py-2.5 rounded-md border border-neutral-300 text-neutral-700 text-sm font-medium hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:focus:ring-neutral-400"
             >
               Back
             </button>
@@ -646,7 +646,7 @@ export function UploadForm() {
               type="button"
               onClick={handleThumbnailContinue}
               disabled={!thumbnailFile}
-              className="px-5 py-2.5 rounded-md bg-neutral-900 text-white text-sm font-medium hover:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-5 py-2.5 rounded-md bg-neutral-900 text-white text-sm font-medium hover:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 dark:focus:ring-neutral-400"
             >
               Continue
             </button>
@@ -662,14 +662,14 @@ export function UploadForm() {
           <h2 id="step3-heading" className="text-xl font-medium mb-1">
             Step 3 of 3 — Describe your world
           </h2>
-          <p className="text-sm text-neutral-500 mb-4">
+          <p className="text-sm text-neutral-500 dark:text-neutral-400 mb-4">
             Give your world a title so others can find it.
           </p>
 
           <div className="mb-4">
             <label
               htmlFor="title-input"
-              className="block text-sm font-medium text-neutral-700 mb-1"
+              className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1"
             >
               Title <span aria-hidden="true">*</span>
             </label>
@@ -684,7 +684,7 @@ export function UploadForm() {
               maxLength={100}
               required
               placeholder="My awesome world"
-              className="block w-full text-sm border border-neutral-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-neutral-900"
+              className="block w-full text-sm border border-neutral-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder-neutral-500 dark:focus:ring-neutral-400"
               aria-describedby={titleError ? "title-error" : undefined}
             />
             {titleError && (
@@ -697,9 +697,9 @@ export function UploadForm() {
           <div className="mb-4">
             <label
               htmlFor="description-input"
-              className="block text-sm font-medium text-neutral-700 mb-1"
+              className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1"
             >
-              Description <span className="text-neutral-400">(optional)</span>
+              Description <span className="text-neutral-400 dark:text-neutral-500">(optional)</span>
             </label>
             <textarea
               id="description-input"
@@ -708,9 +708,9 @@ export function UploadForm() {
               maxLength={1000}
               rows={4}
               placeholder="Describe your world..."
-              className="block w-full text-sm border border-neutral-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-neutral-900 resize-y"
+              className="block w-full text-sm border border-neutral-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-neutral-900 resize-y dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder-neutral-500 dark:focus:ring-neutral-400"
             />
-            <p className="mt-1 text-xs text-neutral-400">
+            <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">
               {description.length} / 1000
             </p>
           </div>
@@ -725,10 +725,10 @@ export function UploadForm() {
                   setTosAccepted(e.target.checked);
                   if (tosError) setTosError("");
                 }}
-                className="mt-0.5 h-4 w-4 rounded border-neutral-300 focus:ring-2 focus:ring-neutral-900"
+                className="mt-0.5 h-4 w-4 rounded border-neutral-300 focus:ring-2 focus:ring-neutral-900 dark:border-neutral-600 dark:bg-neutral-900 dark:focus:ring-neutral-400"
                 aria-describedby={tosError ? "tos-error" : undefined}
               />
-              <label htmlFor="tos-checkbox" className="text-sm text-neutral-700">
+              <label htmlFor="tos-checkbox" className="text-sm text-neutral-700 dark:text-neutral-300">
                 I confirm I own the rights to this 3D model and have permission
                 to share it.
               </label>
@@ -744,14 +744,14 @@ export function UploadForm() {
             <button
               type="button"
               onClick={() => setStep("pick_thumbnail")}
-              className="px-5 py-2.5 rounded-md border border-neutral-300 text-neutral-700 text-sm font-medium hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2"
+              className="px-5 py-2.5 rounded-md border border-neutral-300 text-neutral-700 text-sm font-medium hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:focus:ring-neutral-400"
             >
               Back
             </button>
             <button
               type="button"
               onClick={handlePublish}
-              className="px-5 py-2.5 rounded-md bg-neutral-900 text-white text-sm font-medium hover:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2"
+              className="px-5 py-2.5 rounded-md bg-neutral-900 text-white text-sm font-medium hover:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 dark:focus:ring-neutral-400"
             >
               Publish
             </button>
@@ -805,7 +805,7 @@ export function UploadForm() {
           <h2 id="done-heading" className="text-xl font-medium mb-2">
             World published!
           </h2>
-          <p className="text-neutral-600 text-sm">Redirecting you now...</p>
+          <p className="text-neutral-600 dark:text-neutral-400 text-sm">Redirecting you now...</p>
         </section>
       )}
 
@@ -820,7 +820,7 @@ export function UploadForm() {
           <p
             id="upload-error-message"
             role="alert"
-            className="text-sm text-red-600 mb-4 bg-red-50 border border-red-200 rounded-md px-3 py-2"
+            className="text-sm text-red-600 mb-4 bg-red-50 border border-red-200 rounded-md px-3 py-2 dark:text-red-400 dark:bg-red-950/30 dark:border-red-900"
           >
             {errorMessage}
           </p>
@@ -850,14 +850,14 @@ export function UploadForm() {
             <button
               type="button"
               onClick={handleRetry}
-              className="px-5 py-2.5 rounded-md bg-neutral-900 text-white text-sm font-medium hover:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2"
+              className="px-5 py-2.5 rounded-md bg-neutral-900 text-white text-sm font-medium hover:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 dark:focus:ring-neutral-400"
             >
               Retry
             </button>
             <button
               type="button"
               onClick={handleStartOver}
-              className="px-5 py-2.5 rounded-md border border-neutral-300 text-neutral-700 text-sm font-medium hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2"
+              className="px-5 py-2.5 rounded-md border border-neutral-300 text-neutral-700 text-sm font-medium hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:focus:ring-neutral-400"
             >
               Start Over
             </button>

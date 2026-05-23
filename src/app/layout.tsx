@@ -30,19 +30,19 @@ export default function RootLayout({
         lang="en"
         className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
       >
-        <body className="flex min-h-full flex-col">
+        <body className="flex min-h-full flex-col bg-white dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100">
           {/* ----------------------------------------------------------------
               Top nav — uses Clerk's <Show> server component to branch on
               auth state without a client boundary at the layout level.
               UserButton is a Clerk client-boundary component (renders the
               user avatar dropdown); it is safe to use inside a server layout.
           ---------------------------------------------------------------- */}
-          <header className="border-b border-neutral-200 bg-white">
+          <header className="border-b border-neutral-200 bg-white dark:bg-neutral-950 dark:border-neutral-800">
             <nav className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
               {/* Wordmark */}
               <Link
                 href="/"
-                className="text-xl font-bold tracking-tight text-neutral-900 hover:text-neutral-700"
+                className="text-xl font-bold tracking-tight text-neutral-900 hover:text-neutral-700 dark:text-neutral-100 dark:hover:text-neutral-300"
               >
                 FORGE
               </Link>
@@ -53,7 +53,7 @@ export default function RootLayout({
                 <Show when="signed-in">
                   <Link
                     href="/upload"
-                    className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2"
+                    className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 dark:focus-visible:ring-neutral-100"
                   >
                     Upload
                   </Link>
@@ -64,13 +64,13 @@ export default function RootLayout({
                 <Show when="signed-out">
                   <Link
                     href="/sign-in"
-                    className="text-sm text-neutral-700 hover:text-neutral-900"
+                    className="text-sm text-neutral-700 hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-neutral-100"
                   >
                     Sign in
                   </Link>
                   <Link
                     href="/sign-up"
-                    className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2"
+                    className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 dark:focus-visible:ring-neutral-100"
                   >
                     Sign up
                   </Link>

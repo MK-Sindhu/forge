@@ -53,12 +53,11 @@ export default async function ProfilePage({
             width={64}
             height={64}
             className="rounded-full"
-            unoptimized
           />
         )}
         <div>
           <h1 className="text-2xl font-semibold">{user.username}</h1>
-          <p className="text-sm text-neutral-600">
+          <p className="text-sm text-neutral-600 dark:text-neutral-400">
             {user.worlds.length}{" "}
             {user.worlds.length === 1 ? "world" : "worlds"} · joined{" "}
             {new Date(user.createdAt).toLocaleDateString()}
@@ -68,9 +67,9 @@ export default async function ProfilePage({
 
       {/* Worlds grid or empty state */}
       {user.worlds.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-neutral-300 py-16 text-center">
-          <p className="text-neutral-600">No worlds yet.</p>
-          <p className="mt-2 text-sm text-neutral-400">
+        <div className="rounded-lg border border-dashed border-neutral-300 py-16 text-center dark:border-neutral-700">
+          <p className="text-neutral-600 dark:text-neutral-400">No worlds yet.</p>
+          <p className="mt-2 text-sm text-neutral-400 dark:text-neutral-600">
             Worlds published by {user.username} will appear here.
           </p>
         </div>
@@ -85,9 +84,9 @@ export default async function ProfilePage({
               <li key={world.id}>
                 <Link
                   href={`/world/${world.id}`}
-                  className="group block overflow-hidden rounded-lg border border-neutral-200 transition hover:border-neutral-400"
+                  className="group block overflow-hidden rounded-lg border border-neutral-200 transition hover:border-neutral-400 dark:border-neutral-800 dark:hover:border-neutral-600"
                 >
-                  <div className="relative aspect-square bg-neutral-100">
+                  <div className="relative aspect-square bg-neutral-100 dark:bg-neutral-900">
                     {thumbnailUrl ? (
                       <Image
                         src={thumbnailUrl}
@@ -95,19 +94,18 @@ export default async function ProfilePage({
                         fill
                         sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, 25vw"
                         className="object-cover"
-                        unoptimized
                       />
                     ) : (
-                      <div className="flex h-full items-center justify-center text-sm text-neutral-400">
+                      <div className="flex h-full items-center justify-center text-sm text-neutral-400 dark:text-neutral-600">
                         No thumbnail
                       </div>
                     )}
                   </div>
                   <div className="p-3">
-                    <h2 className="line-clamp-2 text-sm font-medium text-neutral-900">
+                    <h2 className="line-clamp-2 text-sm font-medium text-neutral-900 dark:text-neutral-100">
                       {world.title}
                     </h2>
-                    <p className="mt-1 text-xs text-neutral-500">
+                    <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
                       {world.likesCount}{" "}
                       {world.likesCount === 1 ? "like" : "likes"} ·{" "}
                       {world.views} {world.views === 1 ? "view" : "views"}
