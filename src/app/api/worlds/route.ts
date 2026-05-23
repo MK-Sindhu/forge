@@ -26,12 +26,13 @@
  */
 
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
-import { eq, isNull } from "drizzle-orm";
+import { auth, currentUser } from "@clerk/nextjs/server";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, dbPool } from "@/db";
-import { users, worlds, worldMedia } from "@/db/schema";
+import { worlds, worldMedia, users } from "@/db/schema";
 import { headObject, publicUrlFor } from "@/lib/r2";
+import { getOrCreateDbUser } from "@/lib/users";
 
 // ---------------------------------------------------------------------------
 // Request schema
@@ -161,19 +162,23 @@ export async function POST(req: Request) {
     );
   }
 
-  // --- 6. Look up DB user row by Clerk ID ------------------------------------
-  const userRows = await db
-    .select()
-    .from(users)
-    .where(eq(users.clerkId, userId))
-    .limit(1);
+  // --- 6. Resolve DB user row, creating it on first upload if needed ----------
+  const clerkUser = await currentUser();
+  if (!clerkUser) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
-  const dbUser = userRows[0];
-  if (!dbUser) {
-    return NextResponse.json(
-      { error: "User row missing — call /api/me first" },
-      { status: 401 }
-    );
+  let dbUser;
+  try {
+    dbUser = await getOrCreateDbUser(clerkUser);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("no email")) {
+      return NextResponse.json(
+        { error: "No email on Clerk user" },
+        { status: 400 },
+      );
+    }
+    throw err;
   }
 
   // --- 7. Transaction: insert worlds + world_media, optionally set tos_accepted_at

@@ -84,6 +84,13 @@ describe("GET /api/me", () => {
   // Scenario 2 ----------------------------------------------------------------
   it("returns 200 with the existing row when the user already exists in the DB", async () => {
     mockAuth.mockResolvedValue({ userId: EXISTING_USER_ROW.clerkId });
+    // currentUser() is called by the refactored route before delegating to the helper.
+    mockCurrentUser.mockResolvedValue({
+      id: EXISTING_USER_ROW.clerkId,
+      username: EXISTING_USER_ROW.username,
+      emailAddresses: [{ emailAddress: EXISTING_USER_ROW.email }],
+      imageUrl: EXISTING_USER_ROW.avatarUrl,
+    });
     // SELECT returns the pre-existing row.
     mockSelectLimit.mockResolvedValue([EXISTING_USER_ROW]);
 
@@ -131,6 +138,13 @@ describe("GET /api/me", () => {
   // Scenario 4 ----------------------------------------------------------------
   it("does not call DB insert on second call when user already exists (idempotent)", async () => {
     mockAuth.mockResolvedValue({ userId: EXISTING_USER_ROW.clerkId });
+    // currentUser() is called by the refactored route before delegating to the helper.
+    mockCurrentUser.mockResolvedValue({
+      id: EXISTING_USER_ROW.clerkId,
+      username: EXISTING_USER_ROW.username,
+      emailAddresses: [{ emailAddress: EXISTING_USER_ROW.email }],
+      imageUrl: EXISTING_USER_ROW.avatarUrl,
+    });
     // Both calls return the existing row.
     mockSelectLimit.mockResolvedValue([EXISTING_USER_ROW]);
 

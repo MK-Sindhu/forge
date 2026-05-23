@@ -1,10 +1,11 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import {
   OrbitControls,
   Bounds,
+  Center,
   useGLTF,
   Environment,
   useProgress,
@@ -44,7 +45,94 @@ function LoadingOverlay() {
   return <ViewerLoading />;
 }
 
+/**
+ * A small toggle button that requests/exits browser fullscreen on the
+ * provided container element. Listens for the `fullscreenchange` event so
+ * the icon stays in sync when the user presses Escape to exit.
+ *
+ * Positioned absolute top-right so it sits over the Canvas in both normal
+ * and fullscreen modes (it's inside the same containing block in both cases).
+ */
+function FullscreenButton({
+  containerRef,
+}: {
+  containerRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    function onChange() {
+      setIsFullscreen(document.fullscreenElement === containerRef.current);
+    }
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, [containerRef]);
+
+  const toggle = async () => {
+    if (!containerRef.current) return;
+    try {
+      if (isFullscreen) {
+        await document.exitFullscreen();
+      } else {
+        await containerRef.current.requestFullscreen();
+      }
+    } catch (err) {
+      // Some browsers (or iframe contexts) silently block fullscreen.
+      console.warn("[WorldViewer] fullscreen toggle failed:", err);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+      className="absolute right-3 top-3 z-10 rounded-md bg-black/50 p-2 text-white opacity-70 transition hover:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-white"
+    >
+      {isFullscreen ? (
+        // Inward-arrows icon — signals "exit fullscreen"
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M8 3v4a1 1 0 0 1-1 1H3" />
+          <path d="M21 8h-4a1 1 0 0 1-1-1V3" />
+          <path d="M3 16h4a1 1 0 0 1 1 1v4" />
+          <path d="M16 21v-4a1 1 0 0 1 1-1h4" />
+        </svg>
+      ) : (
+        // Outward-arrows icon — signals "enter fullscreen"
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M3 8V5a2 2 0 0 1 2-2h3" />
+          <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
+          <path d="M3 16v3a2 2 0 0 0 2 2h3" />
+          <path d="M21 16v3a2 2 0 0 1-2 2h-3" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
 export default function WorldViewer({ glbUrl, ariaLabel }: WorldViewerProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
   return (
     <WorldViewerErrorBoundary fallback={<ViewerError />}>
       {/*
@@ -52,10 +140,12 @@ export default function WorldViewer({ glbUrl, ariaLabel }: WorldViewerProps) {
        * scene. aria-label gives screen readers a meaningful description.
        */}
       <div
+        ref={containerRef}
         className="relative h-full w-full bg-neutral-100 dark:bg-neutral-950"
         role="img"
         aria-label={ariaLabel ?? "3D world viewer"}
       >
+        <FullscreenButton containerRef={containerRef} />
         <Canvas
           camera={{ position: [3, 3, 5], fov: 50 }}
           dpr={[1, 2]}
@@ -79,8 +169,10 @@ export default function WorldViewer({ glbUrl, ariaLabel }: WorldViewerProps) {
              * margin={1.2} adds breathing room so the model isn't flush against
              * the frustum edges.
              */}
-            <Bounds fit clip observe margin={1.2}>
-              <Model url={glbUrl} />
+            <Bounds fit clip observe margin={1.4}>
+              <Center>
+                <Model url={glbUrl} />
+              </Center>
             </Bounds>
           </Suspense>
 

@@ -10,14 +10,18 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const {
   mockAuth,
+  mockCurrentUser,
   mockHeadObject,
   mockPublicUrlFor,
   mockUserLookup,
+  mockUserInsert,
   mockTransaction,
   mockTxInsert,
   mockTxUpdate,
 } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
+  // External boundary: currentUser() fetches the full Clerk user object.
+  mockCurrentUser: vi.fn(),
   // External boundary: real headObject calls the AWS SDK against Cloudflare R2.
   // Mocked to return predictable { exists, contentLength } without network calls.
   mockHeadObject: vi.fn(),
@@ -26,6 +30,8 @@ const {
   mockPublicUrlFor: vi.fn(),
   // Inner mock for db.select(...)...limit(n) — the user-lookup query.
   mockUserLookup: vi.fn(),
+  // Inner mock for db.insert(...)...values(...)...returning() — user bootstrap.
+  mockUserInsert: vi.fn(),
   // Inner mock for dbPool.transaction(...) — receives the callback.
   mockTransaction: vi.fn(),
   // Spy into tx.insert(table).values(values) calls inside the transaction.
@@ -38,6 +44,7 @@ const {
 // not available in the test runner.
 vi.mock("@clerk/nextjs/server", () => ({
   auth: mockAuth,
+  currentUser: mockCurrentUser,
 }));
 
 // Mock @/lib/r2 — real calls need Cloudflare R2 credentials + network access.
@@ -55,6 +62,11 @@ vi.mock("@/db", () => ({
         where: () => ({
           limit: (...args: unknown[]) => mockUserLookup(...args),
         }),
+      }),
+    }),
+    insert: () => ({
+      values: (payload: unknown) => ({
+        returning: (...args: unknown[]) => mockUserInsert(payload, ...args),
       }),
     }),
   },
@@ -126,6 +138,14 @@ function makeRequest(body: unknown, rawBody?: string): Request {
 function setupHappyPath(userRow = DB_USER_NO_TOS) {
   mockAuth.mockResolvedValue({ userId: VALID_USER_ID });
 
+  // currentUser() is called by getOrCreateDbUser inside POST /api/worlds.
+  mockCurrentUser.mockResolvedValue({
+    id: VALID_USER_ID,
+    username: "alice",
+    emailAddresses: [{ emailAddress: "alice@example.com" }],
+    imageUrl: null,
+  });
+
   mockHeadObject.mockImplementation(
     ({ bucket, objectKey }: { bucket: string; objectKey: string }) => {
       if (bucket === "glb" && objectKey === GLB_KEY) {
@@ -187,9 +207,17 @@ describe("POST /api/worlds — Auth", () => {
     expect(await res.json()).toMatchObject({ error: expect.any(String) });
   });
 
-  it("returns 401 when authenticated user has no users row in the DB", async () => {
+  it("auto-bootstraps the user row and returns 201 when authenticated user has no DB row yet", async () => {
+    const BOOTSTRAPPED_USER = { ...DB_USER_NO_TOS };
+
     mockAuth.mockResolvedValue({ userId: VALID_USER_ID });
-    // Must pass the HEAD checks so the route reaches the user-lookup step.
+    mockCurrentUser.mockResolvedValue({
+      id: VALID_USER_ID,
+      username: "alice",
+      emailAddresses: [{ emailAddress: "alice@example.com" }],
+      imageUrl: null,
+    });
+    // Must pass the HEAD checks so the route reaches the user-bootstrap step.
     mockHeadObject.mockImplementation(
       ({ bucket }: { bucket: string }) => {
         if (bucket === "glb") {
@@ -198,14 +226,42 @@ describe("POST /api/worlds — Auth", () => {
         return Promise.resolve({ exists: true, contentLength: THUMBNAIL_SIZE });
       }
     );
-    mockUserLookup.mockResolvedValue([]); // empty → no DB row
+    mockPublicUrlFor.mockImplementation(
+      (bucket: string, key: string) => `https://cdn.example.com/${bucket}/${key}`
+    );
+    mockUserLookup.mockResolvedValue([]); // empty → no existing DB row
+    // Bootstrap INSERT returns the newly created user row.
+    mockUserInsert.mockResolvedValue([BOOTSTRAPPED_USER]);
+    // Transaction must succeed for the world to be created.
+    mockTransaction.mockImplementation(
+      async (callback: (tx: unknown) => Promise<unknown>) => {
+        const fakeTx = {
+          insert: (table: unknown) => ({
+            values: (values: unknown) => {
+              mockTxInsert(table, values);
+              return Promise.resolve();
+            },
+          }),
+          update: (table: unknown) => ({
+            set: (values: unknown) => ({
+              where: () => {
+                mockTxUpdate(table, values);
+                return Promise.resolve();
+              },
+            }),
+          }),
+        };
+        return await callback(fakeTx);
+      }
+    );
 
     const res = await POST(makeRequest(VALID_BODY));
 
-    // The spec says 401 (not 403) for this case — the user authenticated with
-    // Clerk but hasn't been provisioned in our DB yet (call /api/me first).
-    expect(res.status).toBe(401);
-    expect(await res.json()).toMatchObject({ error: expect.any(String) });
+    // The route now bootstraps the user row instead of returning 401.
+    expect(res.status).toBe(201);
+    expect(await res.json()).toMatchObject({ worldId: VALID_WORLD_ID });
+    // The user INSERT must have been called (bootstrap happened).
+    expect(mockUserInsert).toHaveBeenCalledOnce();
   });
 });
 
