@@ -3,7 +3,7 @@
 > The social network of virtual worlds. Scroll a feed, tap, enter a 3D world. AI builds the worlds from text.
 
 **Last updated:** 2026-05-23
-**Current phase:** Week 0 → Week 1 transition (stack locked, repo setup next)
+**Current phase:** Week 1–2 done. Next: Week 3–4 (World Viewer / Scene JSON renderer).
 **Builder:** Solo (student)
 **Build tool:** Claude Code
 
@@ -66,8 +66,8 @@ Why this matters: AI generates it, DB stores it, renderer reads it. One format, 
 
 | Week | Goal                                    | Status |
 |------|-----------------------------------------|--------|
-| 0    | Decisions, repo setup, project tracker  | 🟡 In progress |
-| 1–2  | Auth + DB schema + Next.js skeleton     | ⬜ |
+| 0    | Decisions, repo setup, project tracker  | ✅ Done |
+| 1–2  | Auth + DB schema + Next.js skeleton     | ✅ Done |
 | 3–4  | World viewer (R3F renders scene JSON)   | ⬜ |
 | 5    | World creation UI (basic)               | ⬜ |
 | 6    | AI text → scene JSON                    | ⬜ |
