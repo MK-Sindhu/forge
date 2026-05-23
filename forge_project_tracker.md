@@ -1,9 +1,9 @@
 # FORGE — Project Tracker
 
-> The social network of virtual worlds. Scroll a feed, tap, enter a 3D world. AI builds the worlds from text.
+> A social platform for 3D world creators. Upload your `.glb` world, share it in a feed, others enter and explore it in the browser.
 
 **Last updated:** 2026-05-23
-**Current phase:** Week 1–2 done. Next: Week 3–4 (World Viewer / Scene JSON renderer).
+**Current phase:** Pivot complete. Slice 1 (Core upload + view) starting.
 **Builder:** Solo (student)
 **Build tool:** Claude Code
 
@@ -11,110 +11,138 @@
 
 ## 1. One-Line Pitch
 
-FORGE is the YouTube/Instagram of virtual worlds — AI-generated 3D scenes you can scroll, enter, and share like posts.
+FORGE is YouTube for 3D worlds — creators publish `.glb` files they made in Blender / Unity / Spline, and viewers scroll a feed and step into them in the browser.
 
 ## 2. Positioning
 
-- **Not** Roblox (games economy)
-- **Not** VRChat (VR-only hangout)
+- **Not** Roblox (games platform with scripting)
+- **Not** VRChat (VR-only social space)
+- **Not** Sketchfab (3D model search engine — we're feed-first social)
 - **Not** Minecraft (sandbox game)
-- **Is** a feed-first social network where the posts are 3D worlds, web-first, AI-assisted creation.
+- **Is** a feed-first social network where the posts are 3D worlds made in real tools, viewed in the browser, with IG-style multi-media previews
 
-## 3. MVP Definition (locked — do not expand)
+## 3. Product Definition
 
-MVP is **done** when:
-1. ✅ User can sign up / log in
-2. ✅ User can generate a world from a text prompt (AI → scene JSON)
-3. ✅ World is saved to their profile
-4. ✅ World shows up in a public feed
-5. ✅ Another user can open the world and look around
+FORGE is **complete enough to launch** when slices 1–6 ship. Slice 7 is polish. Each slice must be production-grade before the next begins.
 
-That's it. No multiplayer. No VR. No marketplace. No mobile app. No avatars beyond a profile pic.
+The product is **not** time-boxed to 8 weeks. The product is shipped when it's right — but we ship one coherent slice at a time, not all at once.
 
 ## 4. Stack Decisions (locked)
 
-| Layer       | Choice                          | Why |
-|-------------|---------------------------------|-----|
-| Frontend    | Next.js + React Three Fiber     | R3F is the cleanest way to use Three.js in React; Next.js handles routing + deploy |
-| Styling     | Tailwind CSS                    | Fast, no design system needed for MVP |
-| Backend     | Next.js API routes              | Monolith. One repo, one language, one deploy — solo-friendly. Migrate to a separate service later only if forced to. |
-| Database    | PostgreSQL on Neon              | Scene JSON fits JSONB cleanly. Neon: 3 GB free tier, scales to zero, branching gives every Vercel preview its own DB. |
-| ORM         | Drizzle                         | Plain SQL migrations (readable), TS-native schema, no codegen step, first-class Neon serverless driver. |
-| Storage     | Cloudflare R2                   | Thumbnails now, 3D assets later. |
-| AI          | Claude API (text → scene JSON)  | Already in the Anthropic ecosystem; TS SDK is first-class. |
-| Auth        | Clerk                           | Drop-in `<SignIn />`, social login + MFA free, 10k MAU free tier. Decoupled from DB so swappable. |
-| Deploy      | Vercel (full Next.js app)       | Single deploy — Vercel handles UI + API routes. DB is managed by Neon, not deployed by us. |
+| Layer       | Choice                                            | Why |
+|-------------|---------------------------------------------------|-----|
+| Frontend    | Next.js 16 (App Router) + Tailwind + TypeScript   | One repo, one deploy, App Router for streaming |
+| 3D viewer   | React Three Fiber 9 + drei (`useGLTF`)            | Industry-standard GLB loading, lazy-loadable, React 19 compatible |
+| Backend     | Next.js API routes                                | Monolith — solo-friendly |
+| Database    | PostgreSQL on Neon                                | Free tier, scales to zero, branching per preview |
+| ORM         | Drizzle                                           | Plain SQL migrations, TS-native schema, no codegen |
+| Auth        | Clerk                                             | Drop-in components, 10k MAU free |
+| Storage     | Cloudflare R2                                     | Critical path — GLBs + thumbnails + media. No egress fees. |
+| Uploads     | Presigned PUT URLs to R2                          | Bypass Vercel's ~4.5 MB serverless body limit; client uploads direct to R2 |
+| Deploy      | Vercel                                            | Free hobby tier; preview deploys per branch |
+| Tests       | Vitest                                            | Fast; runs in CI |
+| CI          | GitHub Actions                                    | Lint + test + build on every PR and main push |
 
-## 5. Core Abstraction — Scene JSON
+## 5. Core Abstractions
 
-Every world is a JSON document. This is the heart of FORGE.
+### Worlds = real `.glb` files
 
-```json
-{
-  "objects": [
-    { "type": "cube", "position": [0,0,0], "color": "#ff0000" },
-    { "type": "model", "url": "tree.glb", "position": [2,0,1] }
-  ],
-  "lighting": { "type": "sunset" },
-  "environment": "skybox_1"
-}
-```
+A world is a `.glb` (or `.gltf`) file the creator built externally in Blender, Unity, Spline, Maya, etc. We don't generate worlds; we host and present them. The file lives in R2; Postgres stores a row pointing at it.
 
-Why this matters: AI generates it, DB stores it, renderer reads it. One format, everything flows.
+### Media gallery = `world_media` table
 
-## 6. Roadmap
+Each world has a media gallery (1+ items): a primary thumbnail, additional images, preview videos. Stored in a separate `world_media` table, ordered, typed. Slice 1 ships with one row per world (the thumbnail). Slice 2 expands the UI to use the full gallery.
 
-| Week | Goal                                    | Status |
-|------|-----------------------------------------|--------|
-| 0    | Decisions, repo setup, project tracker  | ✅ Done |
-| 1–2  | Auth + DB schema + Next.js skeleton     | ✅ Done |
-| 3–4  | World viewer (R3F renders scene JSON)   | ⬜ |
-| 5    | World creation UI (basic)               | ⬜ |
-| 6    | AI text → scene JSON                    | ⬜ |
-| 7    | Feed page                               | ⬜ |
-| 8    | Deploy + seed 20–50 worlds              | ⬜ |
+### Upload flow = signed PUT
+
+The client never POSTs files through Next.js. Instead:
+
+1. Client → `POST /api/uploads/sign` with `{kind, contentType, sizeBytes}`. Server validates and returns a **presigned PUT URL** for R2.
+2. Client → `PUT <presigned-url>` with the file body, directly to R2. The bytes never touch our server.
+3. Client → `POST /api/worlds` with the resulting R2 object keys + metadata. Server HEADs the keys to confirm upload happened, then inserts `worlds` + `world_media` rows in a transaction.
+
+This dodges Vercel's serverless body limit AND uses zero server bandwidth.
+
+## 6. Slices (the roadmap)
+
+No weekly deadlines. Each slice ships when production-grade: tests, error handling, accessibility, performance. Then we move to the next.
+
+| # | Slice                                                | Status |
+|---|------------------------------------------------------|--------|
+| 0 | Auth + DB scaffolding + project tracker + CI         | ✅ Done |
+| 1 | Core upload + view (single GLB, single thumbnail)    | 🟡 Starting |
+| 2 | Rich media gallery (multi-image + video carousel)    | ⬜ |
+| 3 | Social baseline (profiles, likes, follow)            | ⬜ |
+| 4 | Engagement (comments, share/promote)                 | ⬜ |
+| 5 | World updates timeline                               | ⬜ |
+| 6 | Moderation (reports, TOS, basic admin)               | ⬜ |
+| 7 | Discovery polish (better feed sorting, notifications)| ⬜ |
+
+### Slice 1 — Core upload + view (what's about to happen)
+
+End state: a signed-in creator can upload a `.glb` + a thumbnail image, the world appears on their profile, and a public URL renders it in a browser-based 3D viewer.
+
+Sub-tasks:
+1. DB migration: drop `scene_json`; add `glb_url`, `glb_size_bytes`; make `thumbnail_url` mandatory; add `world_media` table; add `tos_accepted_at` to `users`
+2. R2 setup: two buckets (`forge-glb`, `forge-media`), CORS configured, S3 SDK wired
+3. Backend: `POST /api/uploads/sign` (presigned PUT URL), `POST /api/worlds` (record + verify), `GET /api/worlds/[id]` (public read)
+4. R3F: `<WorldViewer glbUrl="..." />` with Suspense + error boundary + OrbitControls + auto-fit camera
+5. UI: `/upload` multi-step form (file → thumbnail → metadata → publish), `/world/[id]` page wrapping the viewer
+6. Tests at every layer
 
 ## 7. Decision Log
 
 _Format: date — decision — reasoning._
 
 - **2026-05-23** — Name is FORGE. Locked.
-- **2026-05-23** — Web-first. No VR/AR in MVP. Reason: solo student, 8-week target, can't afford device fragmentation.
-- **2026-05-23** — Scene JSON is the single source of truth for a world. All other formats derive from it.
-- **2026-05-23** — Backend: Next.js API routes (monolith). Reason: solo dev, one language/repo/deploy. TS Anthropic SDK is sufficient — no need for a separate Python service.
-- **2026-05-23** — Database hosting: Neon. Reason: 3 GB free tier, scales to zero, branching gives preview deploys their own DB without extra config.
-- **2026-05-23** — Auth: Clerk. Reason: fastest path to working auth (drop-in `<SignIn />`), 10k MAU free tier, decoupled from Neon so each is independently swappable.
-- **2026-05-23** — ORM: Drizzle. Reason: native fit with Neon's serverless driver (cold-start matters on Vercel), plain SQL migrations stay readable when things go wrong, no codegen step, TS schema with strong inference.
-- **2026-05-23** — Added `test-engineer` subagent. Reason: solo builder needs separation between code-writers and test-writers to keep tests unbiased. Spun up before most implementation exists so tests come from the spec, not the code.
+- **2026-05-23** — Web-first. No VR/AR in MVP. Solo student, can't afford device fragmentation.
+- **2026-05-23** — ~~Scene JSON is the single source of truth for a world.~~ **REVERSED 2026-05-23** — pivoted to user-uploaded `.glb` files.
+- **2026-05-23** — Backend: Next.js API routes (monolith).
+- **2026-05-23** — Database hosting: Neon.
+- **2026-05-23** — Auth: Clerk.
+- **2026-05-23** — ORM: Drizzle.
+- **2026-05-23** — Added `test-engineer` subagent for independent QA.
+- **2026-05-23** — **PIVOT** — Cut AI text-to-world generation from MVP. World creation = user uploads `.glb` files made in Blender/Unity/etc. Reason: simpler tech, real creator content from day one, social platform > tech demo. AI generation moves to post-launch parking lot.
+- **2026-05-23** — Multi-media gallery + world updates + follow/promote ARE in the product, in their own slices. Quality > timeline ("no time pressure, make sure product is ok" — founder direction).
+- **2026-05-23** — Cloudflare R2 elevated from Week 6 to immediate (Slice 1) — files are now the core asset.
+- **2026-05-23** — Removed `ai-scene-architect` subagent. No AI in MVP.
+- **2026-05-23** — Removed `ANTHROPIC_API_KEY` from env config.
+- **2026-05-23** — Deleted `src/lib/scene/schema.ts` + tests (60 tests → 6 tests). Custom JSON schema no longer relevant; GLB is the format.
+- **2026-05-23** — File-upload-only for MVP (no Sketchfab URL imports). Reason: licensing/CORS landmines.
+- **2026-05-23** — Schema-ready for multi-media from Slice 1: `world_media` table exists from day one, Slice 1 only inserts a single thumbnail row, Slice 2 expands without migration.
 
 ## 8. Open Questions
 
-1. ~~**Backend: FastAPI or Next.js API routes?**~~ ✅ Resolved 2026-05-23 → Next.js API routes.
-2. ~~**Auth: Clerk / Supabase Auth / NextAuth / roll-own?**~~ ✅ Resolved 2026-05-23 → Clerk.
-3. ~~**Database hosting: Railway / Supabase / Neon?**~~ ✅ Resolved 2026-05-23 → Neon.
-4. ~~**ORM: Prisma vs Drizzle?**~~ ✅ Resolved 2026-05-23 → Drizzle.
+1. **GLB file size cap** — proposed 100 MB → leaning **50 MB**. Tradeoff: artistic ambition vs page load time vs R2 ingress cost.
+2. **Thumbnail size cap** — proposed 2 MB. Probably fine.
+3. **Preview video** (Slice 2) — proposed 15 MB / 30 sec.
+4. **R2 region** — pick once. Leaning **WNAM (US East)** for global average latency.
+5. **Upload UX** — single-page form vs multi-step wizard? Lean: **multi-step wizard** (clearer state, easier validation per step).
 
 ## 9. Risks (active watch)
 
-- **Overengineering** → strict MVP scope above
-- **Performance** → cap worlds at 20 objects in MVP
-- **Empty platform** → seed 20–50 AI-generated worlds before launch
-- **AI cost** → cache generations, rate-limit free users
+- **Empty platform** → seed 10–20 worlds yourself + invite 3D-creator friends before public launch
+- **GLB file weight** → cap size, lazy-load viewer, show loading state, surface load failures clearly
+- **Moderation / IP** → TOS checkbox at upload + report mechanism + manual triage; legal review before paid features
+- **Mobile WebGL perf** → acceptable for viewing; no mobile upload flow in MVP (responsive web only)
+- **R2 cost overrun** → R2 has no egress fees; only ingress + storage. Free tier 10 GB. Monitor monthly. Worst case: cap free uploads at 10 GB per user.
 
-## 10. What's NOT in MVP (parking lot)
+## 10. Parking Lot (post-launch)
 
-These are good ideas. They are not Week 1–8 ideas.
+Good ideas. Not in slices 1–7.
 
-- Multiplayer / presence
-- VR / AR rendering
-- Avatars & customization
-- Creator monetization
-- Asset marketplace
-- Mobile app
-- AR mode on phones
-- NPC generation
-- Voice chat
-- Followers / social graph (basic profile only in MVP)
+- **AI text-to-world generation** — repositioned as a post-launch viral hook
+- **In-browser world builder** (drag-drop primitives, save as GLB)
+- **VR / AR rendering** (the viewer is the easiest place to add this — Phase 2)
+- **Mobile native app** (responsive web is enough for MVP)
+- **Creator monetization** (tips, paid worlds, asset marketplace)
+- **Multiplayer presence** (see other people in a world)
+- **Voice chat / DMs**
+- **Search + tags** (Slice 7 may add lightweight tags; full search is post-launch)
+- **Auto-generated thumbnails from GLB** (manual upload is fine for MVP)
+- **World embedding** (iframe on external sites)
+- **Live-stream a creator building**
+- **NPC behavior / scripting**
 
 ---
 
