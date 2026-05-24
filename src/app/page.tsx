@@ -3,6 +3,7 @@ import Image from "next/image";
 import { desc } from "drizzle-orm";
 import { db } from "@/db";
 import { worlds } from "@/db/schema";
+import { WorldCardMedia } from "@/components/world-card-media/WorldCardMedia";
 
 // ---------------------------------------------------------------------------
 // Types inferred from the Drizzle query result
@@ -17,7 +18,7 @@ type FeedWorld = {
     username: string;
     avatarUrl: string | null;
   };
-  media: { url: string }[];
+  media: { type: string; url: string }[];
 };
 
 // ---------------------------------------------------------------------------
@@ -39,9 +40,9 @@ export default async function FeedPage() {
         columns: { username: true, avatarUrl: true },
       },
       media: {
-        where: (m, { eq }) => eq(m.type, "thumbnail"),
-        limit: 1,
-        columns: { url: true },
+        where: (m, { or, eq }) => or(eq(m.type, "thumbnail"), eq(m.type, "video")),
+        limit: 2,
+        columns: { type: true, url: true },
       },
     },
   });
@@ -69,36 +70,23 @@ export default async function FeedPage() {
 // ---------------------------------------------------------------------------
 // FeedCard
 // ---------------------------------------------------------------------------
-function NoThumbnail() {
-  return (
-    <div className="flex h-full items-center justify-center text-sm text-neutral-400 dark:text-neutral-600">
-      No preview
-    </div>
-  );
-}
-
 function FeedCard({ world }: { world: FeedWorld }) {
-  const thumbnailUrl = world.media[0]?.url ?? null;
+  const thumbnailUrl =
+    world.media.find((m) => m.type === "thumbnail")?.url ?? null;
+  const videoUrl = world.media.find((m) => m.type === "video")?.url ?? null;
 
   return (
     <Link
       href={`/world/${world.id}`}
       className="group block overflow-hidden rounded-lg border border-neutral-200 transition hover:border-neutral-400 dark:border-neutral-800 dark:hover:border-neutral-600"
     >
-      {/* Thumbnail — 16:9 cinematic ratio */}
-      <div className="relative aspect-video bg-neutral-100 dark:bg-neutral-900">
-        {thumbnailUrl ? (
-          <Image
-            src={thumbnailUrl}
-            alt={world.title}
-            fill
-            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, (max-width: 1280px) 33vw, 25vw"
-            className="object-cover"
-          />
-        ) : (
-          <NoThumbnail />
-        )}
-      </div>
+      {/* Media area — thumbnail by default; swaps to video preview on hover */}
+      <WorldCardMedia
+        thumbnailUrl={thumbnailUrl}
+        videoUrl={videoUrl}
+        alt={world.title}
+        sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, (max-width: 1280px) 33vw, 25vw"
+      />
 
       {/* Card body */}
       <div className="p-3">

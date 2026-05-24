@@ -19,7 +19,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { z } from "zod";
-import { getPresignedPutUrl, buildGlbKey, buildThumbnailKey } from "@/lib/r2";
+import { getPresignedPutUrl, buildGlbKey, buildThumbnailKey, buildMediaKey } from "@/lib/r2";
 
 // ---------------------------------------------------------------------------
 // Per-kind validation rules
@@ -89,6 +89,9 @@ const BodySchema = z.object({
   contentType: z.string().min(1),
   // Must be a positive integer — rejects 0, floats, negatives.
   sizeBytes: z.number().int().positive(),
+  // Required when kind is "image" or "video" — client generates a fresh UUID
+  // per media item so multiple image/video uploads don't collide.
+  mediaId: z.string().uuid().optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -117,12 +120,12 @@ export async function POST(req: Request) {
     );
   }
 
-  const { kind, worldId, contentType, sizeBytes } = parsed;
+  const { kind, worldId, contentType, sizeBytes, mediaId } = parsed;
 
-  // --- Slice 1: image/video not yet supported ----------------------------------
-  if (kind === "image" || kind === "video") {
+  // --- Require mediaId for image/video ----------------------------------------
+  if ((kind === "image" || kind === "video") && !mediaId) {
     return NextResponse.json(
-      { error: "Slice 2 — image/video uploads not yet supported" },
+      { error: "mediaId is required for image and video uploads" },
       { status: 400 }
     );
   }
@@ -155,10 +158,18 @@ export async function POST(req: Request) {
   if (kind === "glb") {
     objectKey = buildGlbKey(userId, worldId);
     bucket = "glb";
-  } else {
-    // thumbnail
+  } else if (kind === "thumbnail") {
     const ext = extForImageContentType(contentType);
     objectKey = buildThumbnailKey(userId, worldId, ext);
+    bucket = "media";
+  } else if (kind === "image") {
+    const ext = extForImageContentType(contentType);
+    // mediaId is guaranteed non-null here (checked above)
+    objectKey = buildMediaKey(userId, worldId, mediaId!, ext);
+    bucket = "media";
+  } else {
+    // video — only video/mp4 is allowed per KIND_RULES
+    objectKey = buildMediaKey(userId, worldId, mediaId!, "mp4");
     bucket = "media";
   }
 

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import Image from "next/image";
 import { WorldViewerClient } from "./WorldViewerClient";
+import MediaCarousel from "@/components/media-carousel/MediaCarousel";
 
 export default async function WorldPage(
   { params }: { params: Promise<{ id: string }> }
@@ -58,6 +59,13 @@ export default async function WorldPage(
           </time>
         </div>
       </header>
+
+      {/* Media carousel — only shown when there are 2+ media items (thumbnail + extras) */}
+      {world.media.length > 1 && (
+        <div className="mb-6">
+          <MediaCarousel media={world.media} worldTitle={world.title} />
+        </div>
+      )}
 
       {/* 3D viewer — fills a fixed-aspect container */}
       <div className="aspect-video w-full overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-800">

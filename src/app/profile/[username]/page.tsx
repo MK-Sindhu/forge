@@ -4,6 +4,7 @@ import Image from "next/image";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { users } from "@/db/schema";
+import { WorldCardMedia } from "@/components/world-card-media/WorldCardMedia";
 
 export default async function ProfilePage({
   params,
@@ -27,11 +28,9 @@ export default async function ProfilePage({
         },
         with: {
           media: {
-            // Filter to thumbnail rows only at the query level.
-            // Drizzle 0.45.x relational API supports `where` inside `with`.
-            where: (m, { eq: deq }) => deq(m.type, "thumbnail"),
-            limit: 1,
-            columns: { url: true },
+            where: (m, { or, eq }) => or(eq(m.type, "thumbnail"), eq(m.type, "video")),
+            limit: 2,
+            columns: { type: true, url: true },
           },
         },
       },
@@ -76,31 +75,21 @@ export default async function ProfilePage({
       ) : (
         <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
           {user.worlds.map((world) => {
-            // `media` is filtered to thumbnail rows at the query level.
-            // If no thumbnail row exists for a world, this will be undefined —
-            // the placeholder div below handles that case gracefully.
-            const thumbnailUrl = world.media[0]?.url;
+            const thumbnailUrl = world.media.find((m) => m.type === "thumbnail")?.url ?? null;
+            const videoUrl = world.media.find((m) => m.type === "video")?.url ?? null;
             return (
               <li key={world.id}>
                 <Link
                   href={`/world/${world.id}`}
                   className="group block overflow-hidden rounded-lg border border-neutral-200 transition hover:border-neutral-400 dark:border-neutral-800 dark:hover:border-neutral-600"
                 >
-                  <div className="relative aspect-square bg-neutral-100 dark:bg-neutral-900">
-                    {thumbnailUrl ? (
-                      <Image
-                        src={thumbnailUrl}
-                        alt={world.title}
-                        fill
-                        sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, 25vw"
-                        className="object-cover"
-                      />
-                    ) : (
-                      <div className="flex h-full items-center justify-center text-sm text-neutral-400 dark:text-neutral-600">
-                        No thumbnail
-                      </div>
-                    )}
-                  </div>
+                  <WorldCardMedia
+                    thumbnailUrl={thumbnailUrl}
+                    videoUrl={videoUrl}
+                    alt={world.title}
+                    sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, 25vw"
+                    aspectRatio="square"
+                  />
                   <div className="p-3">
                     <h2 className="line-clamp-2 text-sm font-medium text-neutral-900 dark:text-neutral-100">
                       {world.title}

@@ -6,17 +6,18 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // resolves. vi.hoisted() runs at the top of the module scope, before imports.
 // ---------------------------------------------------------------------------
 
-const { mockAuth, mockGetPresignedPutUrl, mockBuildGlbKey, mockBuildThumbnailKey } =
+const { mockAuth, mockGetPresignedPutUrl, mockBuildGlbKey, mockBuildThumbnailKey, mockBuildMediaKey } =
   vi.hoisted(() => ({
     mockAuth: vi.fn(),
     // External boundary: real getPresignedPutUrl would call AWS SDK + Cloudflare R2.
     // We mock it to return a predictable URL without any network calls.
     mockGetPresignedPutUrl: vi.fn(),
-    // buildGlbKey / buildThumbnailKey are pure key-builders; mocked so the test
-    // controls objectKey values and we can assert the route passes them correctly
-    // to getPresignedPutUrl without coupling to R2's key-generation logic.
+    // buildGlbKey / buildThumbnailKey / buildMediaKey are pure key-builders; mocked
+    // so the test controls objectKey values and we can assert the route passes them
+    // correctly to getPresignedPutUrl without coupling to R2's key-generation logic.
     mockBuildGlbKey: vi.fn(),
     mockBuildThumbnailKey: vi.fn(),
+    mockBuildMediaKey: vi.fn(),
   }));
 
 // Mock @clerk/nextjs/server — external boundary; real Clerk calls require a
@@ -31,6 +32,7 @@ vi.mock("@/lib/r2", () => ({
   getPresignedPutUrl: mockGetPresignedPutUrl,
   buildGlbKey: mockBuildGlbKey,
   buildThumbnailKey: mockBuildThumbnailKey,
+  buildMediaKey: mockBuildMediaKey,
 }));
 
 // Import the handler AFTER mocks are registered.
@@ -42,6 +44,7 @@ import { POST } from "./route";
 
 const VALID_USER_ID = "user_clerk_abc123";
 const VALID_WORLD_ID = "550e8400-e29b-41d4-a716-446655440000"; // UUID v4
+const VALID_MEDIA_ID = "660e8400-e29b-41d4-a716-446655440001"; // UUID v4
 
 const PRESIGNED_URL = "https://r2.example.com/signed-put?token=abc";
 
@@ -220,16 +223,57 @@ describe("POST /api/uploads/sign — Body validation", () => {
 });
 
 // ---------------------------------------------------------------------------
-// describe C — Slice 2 kinds blocked in Slice 1
+// describe C — image/video uploads (Slice 2)
 // ---------------------------------------------------------------------------
 
-describe("POST /api/uploads/sign — Slice 2 kinds (blocked in Slice 1)", () => {
+describe("POST /api/uploads/sign — image/video uploads (Slice 2)", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mockAuth.mockResolvedValue({ userId: VALID_USER_ID });
+    mockGetPresignedPutUrl.mockResolvedValue(PRESIGNED_URL);
+    mockBuildMediaKey.mockImplementation(
+      (userId: string, worldId: string, mediaId: string, ext: string) =>
+        `worlds/${userId}/${worldId}/media/${mediaId}.${ext}`
+    );
   });
 
-  it("returns 400 with a Slice 2 error message when kind is 'image'", async () => {
+  it("kind=image with valid params returns 200 with correct objectKey", async () => {
+    const res = await POST(
+      makeRequest({
+        kind: "image",
+        worldId: VALID_WORLD_ID,
+        contentType: "image/jpeg",
+        sizeBytes: 1024,
+        mediaId: VALID_MEDIA_ID,
+      })
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.objectKey).toBe(
+      `worlds/${VALID_USER_ID}/${VALID_WORLD_ID}/media/${VALID_MEDIA_ID}.jpg`
+    );
+  });
+
+  it("kind=video with valid params returns 200 with correct objectKey", async () => {
+    const res = await POST(
+      makeRequest({
+        kind: "video",
+        worldId: VALID_WORLD_ID,
+        contentType: "video/mp4",
+        sizeBytes: 1024,
+        mediaId: VALID_MEDIA_ID,
+      })
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.objectKey).toBe(
+      `worlds/${VALID_USER_ID}/${VALID_WORLD_ID}/media/${VALID_MEDIA_ID}.mp4`
+    );
+  });
+
+  it("kind=image without mediaId returns 400 with 'mediaId is required'", async () => {
     const res = await POST(
       makeRequest({
         kind: "image",
@@ -241,11 +285,10 @@ describe("POST /api/uploads/sign — Slice 2 kinds (blocked in Slice 1)", () => 
 
     expect(res.status).toBe(400);
     const body = await res.json();
-    // The error message must clearly indicate this is blocked until Slice 2.
-    expect(body.error).toMatch(/slice 2/i);
+    expect(body.error).toMatch(/mediaId is required/i);
   });
 
-  it("returns 400 with a Slice 2 error message when kind is 'video'", async () => {
+  it("kind=video without mediaId returns 400 with 'mediaId is required'", async () => {
     const res = await POST(
       makeRequest({
         kind: "video",
@@ -257,7 +300,7 @@ describe("POST /api/uploads/sign — Slice 2 kinds (blocked in Slice 1)", () => 
 
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error).toMatch(/slice 2/i);
+    expect(body.error).toMatch(/mediaId is required/i);
   });
 });
 

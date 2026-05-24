@@ -1,11 +1,11 @@
 /**
  * POST /api/worlds
  *
- * Creates a world record after the client has uploaded the GLB + thumbnail
+ * Creates a world record after the client has uploaded the GLB + media items
  * directly to R2 via presigned PUT URLs (from POST /api/uploads/sign).
  *
  * Flow:
- *   1. Client → POST /api/uploads/sign × 2  (one for GLB, one for thumbnail)
+ *   1. Client → POST /api/uploads/sign × N  (one for GLB, one per media item)
  *   2. Client → PUT <presignedUrl>           (direct to R2, never touches our server)
  *   3. Client → POST /api/worlds             (this route — finalize the record)
  *
@@ -14,8 +14,8 @@
  *   - R2 object keys are validated against the authenticated user's Clerk ID
  *     and the worldId from the body, preventing one user from claiming another's
  *     uploaded files.
- *   - GLB + thumbnail are HEAD-checked in R2 to confirm the uploads completed
- *     before any DB row is written.
+ *   - GLB + all media items are HEAD-checked in R2 (parallelized) to confirm
+ *     uploads completed before any DB row is written.
  *   - worlds + world_media are inserted in a single DB transaction — no partial
  *     state is possible.
  *   - TOS acceptance is recorded inside the same transaction.
@@ -38,6 +38,12 @@ import { getOrCreateDbUser } from "@/lib/users";
 // Request schema
 // ---------------------------------------------------------------------------
 
+const MediaItemSchema = z.object({
+  kind: z.enum(["thumbnail", "image", "video"]),
+  key: z.string().min(1),
+  sizeBytes: z.number().int().positive(),
+});
+
 const BodySchema = z.object({
   // UUID v4 — must match the worldId used in /api/uploads/sign so the R2 key
   // paths align.
@@ -51,12 +57,12 @@ const BodySchema = z.object({
   // z.literal(true) rejects false, missing, or any other truthy value.
   tosAccepted: z.literal(true),
 
-  // R2 object keys returned by /api/uploads/sign.
+  // R2 object key for the GLB file, returned by /api/uploads/sign.
   glbKey: z.string().min(1),
   glbSizeBytes: z.number().int().positive(),
 
-  thumbnailKey: z.string().min(1),
-  thumbnailSizeBytes: z.number().int().positive(),
+  // Media array: 1–6 items. Must include exactly one thumbnail, at most one video.
+  media: z.array(MediaItemSchema).min(1).max(6),
 });
 
 type Body = z.infer<typeof BodySchema>;
@@ -108,31 +114,47 @@ export async function POST(req: Request) {
     );
   }
 
-  const {
-    worldId,
-    title,
-    description,
-    glbKey,
-    glbSizeBytes,
-    thumbnailKey,
-    thumbnailSizeBytes,
-  } = body;
+  const { worldId, title, description, glbKey, glbSizeBytes, media } = body;
 
-  // --- 3. Security: R2 key prefix must match authenticated user + worldId ----
+  // --- 3. Post-parse media array constraints ---------------------------------
+  const thumbnailItems = media.filter((m) => m.kind === "thumbnail");
+  if (thumbnailItems.length !== 1) {
+    return NextResponse.json(
+      {
+        error:
+          thumbnailItems.length === 0
+            ? "media must include exactly one thumbnail (none provided)"
+            : "media must include exactly one thumbnail (multiple provided)",
+      },
+      { status: 400 }
+    );
+  }
+
+  const videoItems = media.filter((m) => m.kind === "video");
+  if (videoItems.length > 1) {
+    return NextResponse.json(
+      { error: "media may include at most one video" },
+      { status: 400 }
+    );
+  }
+
+  // --- 4. Security: R2 key prefix must match authenticated user + worldId ----
   if (!keyMatchesUserAndWorld(glbKey, userId, worldId)) {
     return NextResponse.json(
       { error: "key does not match authenticated user/world" },
       { status: 400 }
     );
   }
-  if (!keyMatchesUserAndWorld(thumbnailKey, userId, worldId)) {
-    return NextResponse.json(
-      { error: "key does not match authenticated user/world" },
-      { status: 400 }
-    );
+  for (const item of media) {
+    if (!keyMatchesUserAndWorld(item.key, userId, worldId)) {
+      return NextResponse.json(
+        { error: "media key does not match authenticated user/world" },
+        { status: 400 }
+      );
+    }
   }
 
-  // --- 4. HEAD the GLB in R2 -------------------------------------------------
+  // --- 5. HEAD the GLB in R2 -------------------------------------------------
   const glbHead = await headObject({ bucket: "glb", objectKey: glbKey });
   if (!glbHead.exists) {
     return NextResponse.json(
@@ -147,22 +169,30 @@ export async function POST(req: Request) {
     );
   }
 
-  // --- 5. HEAD the thumbnail in R2 -------------------------------------------
-  const thumbHead = await headObject({ bucket: "media", objectKey: thumbnailKey });
-  if (!thumbHead.exists) {
-    return NextResponse.json(
-      { error: "Thumbnail file not found in storage — did upload complete?" },
-      { status: 400 }
-    );
-  }
-  if (thumbHead.contentLength !== thumbnailSizeBytes) {
-    return NextResponse.json(
-      { error: "Thumbnail size mismatch" },
-      { status: 400 }
-    );
+  // --- 6. HEAD all media items in R2 (parallelized) --------------------------
+  const mediaHeads = await Promise.all(
+    media.map((item) => headObject({ bucket: "media", objectKey: item.key }))
+  );
+
+  for (let i = 0; i < media.length; i++) {
+    const item = media[i];
+    const head = mediaHeads[i];
+    const label = item.kind;
+    if (!head.exists) {
+      return NextResponse.json(
+        { error: `${label} not found in storage — did upload complete?` },
+        { status: 400 }
+      );
+    }
+    if (head.contentLength !== item.sizeBytes) {
+      return NextResponse.json(
+        { error: `${label} size mismatch` },
+        { status: 400 }
+      );
+    }
   }
 
-  // --- 6. Resolve DB user row, creating it on first upload if needed ----------
+  // --- 7. Resolve DB user row, creating it on first upload if needed ----------
   const clerkUser = await currentUser();
   if (!clerkUser) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -181,7 +211,7 @@ export async function POST(req: Request) {
     throw err;
   }
 
-  // --- 7. Transaction: insert worlds + world_media, optionally set tos_accepted_at
+  // --- 8. Transaction: insert worlds + world_media, optionally set tos_accepted_at
   await dbPool.transaction(async (tx) => {
     // Insert the world row, using worldId from the body as the PK so it aligns
     // with the R2 key paths that were already created during the sign step.
@@ -194,14 +224,16 @@ export async function POST(req: Request) {
       glbSizeBytes,
     });
 
-    // Insert the primary thumbnail row in world_media (position 0).
-    await tx.insert(worldMedia).values({
+    // Batch-insert all media rows in a single round trip, preserving the
+    // client-supplied order (position = index in the media array).
+    const mediaRows = media.map((item, index) => ({
       worldId,
-      type: "thumbnail",
-      url: publicUrlFor("media", thumbnailKey),
-      sizeBytes: thumbnailSizeBytes,
-      position: 0,
-    });
+      type: item.kind,
+      url: publicUrlFor("media", item.key),
+      sizeBytes: item.sizeBytes,
+      position: index,
+    }));
+    await tx.insert(worldMedia).values(mediaRows);
 
     // If the user has not yet accepted TOS, record acceptance now.
     // This is part of the same atomic act as publishing their first world.
@@ -213,6 +245,6 @@ export async function POST(req: Request) {
     }
   });
 
-  // --- 8. Respond 201 Created ------------------------------------------------
+  // --- 9. Respond 201 Created ------------------------------------------------
   return NextResponse.json({ worldId, url: `/world/${worldId}` }, { status: 201 });
 }
