@@ -29,7 +29,7 @@ import { NextResponse } from "next/server";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { db, dbPool } from "@/db";
+import { dbPool } from "@/db";
 import { worlds, worldMedia, users } from "@/db/schema";
 import { headObject, publicUrlFor } from "@/lib/r2";
 import { getOrCreateDbUser } from "@/lib/users";

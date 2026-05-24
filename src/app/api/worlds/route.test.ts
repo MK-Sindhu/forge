@@ -158,11 +158,6 @@ function makeValidBody(overrides: Partial<ValidBodyShape> = {}): ValidBodyShape 
   };
 }
 
-// Convenience: a media array with thumbnail + video + two images.
-function makeMediaArray(...items: Array<{ kind: "thumbnail" | "image" | "video"; key: string; sizeBytes: number }>): MediaItem[] {
-  return items;
-}
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

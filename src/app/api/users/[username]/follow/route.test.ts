@@ -90,9 +90,6 @@ vi.mock("@/db", () => ({
 
 // Import handlers AFTER mocks are registered so they receive the mocked deps.
 import { POST, DELETE } from "./route";
-// Import real table refs — pure JS objects, no DB connection triggered.
-// Used only as identity markers where the spec requires them.
-import { follows } from "@/db/schema";
 
 // ---------------------------------------------------------------------------
 // Fixtures

@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -695,10 +696,6 @@ export function UploadForm() {
       if (stepCursor === "create") {
         setProgress((p) => ({ ...p, creating: "pending" }));
 
-        const imageKeys = imageFiles.map(
-          (_, i) => imageSignCacheRef.current.get(i)!.key
-        );
-
         const createRes = await fetch("/api/worlds", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1096,9 +1093,13 @@ export function UploadForm() {
 
           {thumbnailPreview && (
             <div className="mb-4">
-              <img
+              {/* blob URL preview — unoptimized is the correct escape hatch for non-CDN sources */}
+              <Image
                 src={thumbnailPreview}
                 alt="Thumbnail preview"
+                width={384}
+                height={192}
+                unoptimized
                 className="max-h-48 rounded-md border border-neutral-200 dark:border-neutral-700 object-cover"
               />
               {thumbnailFile && (
@@ -1281,9 +1282,13 @@ export function UploadForm() {
             >
               {imagePreviews.map((src, i) => (
                 <div key={i} className="relative inline-block">
-                  <img
+                  {/* blob URL preview — unoptimized is the correct escape hatch for non-CDN sources */}
+                  <Image
                     src={src}
                     alt={`Extra image ${i + 1}: ${imageFiles[i]?.name ?? ""}`}
+                    width={64}
+                    height={64}
+                    unoptimized
                     className="w-16 h-16 object-cover rounded-md border border-neutral-200 dark:border-neutral-700"
                   />
                   <button
