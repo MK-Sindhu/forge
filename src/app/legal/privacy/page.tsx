@@ -266,12 +266,21 @@ export default function PrivacyPage() {
             .
           </li>
           <li>
-            <strong>Analytics</strong> — FORGE does not currently use any
-            analytics service. A privacy-first analytics tool (such as Plausible
-            or PostHog) may be added before or after public launch. When it is
-            added, this policy will be updated to describe what is tracked and
-            how to opt out. Check the &ldquo;Last updated&rdquo; date at the top of this
-            page to see whether such an update has been made.
+            <strong>Plausible Analytics</strong> (privacy-first, cookieless
+            pageview tracking) — tracks aggregate pageviews, referrer, browser,
+            OS, screen size, and country (derived from your IP address; the IP
+            itself is discarded and never stored). No personal data is
+            collected; no cookies are set; no cross-site tracking occurs.
+            Plausible&rsquo;s practices are governed by the{" "}
+            <a
+              href="https://plausible.io/privacy"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-neutral-900 dark:hover:text-neutral-100"
+            >
+              Plausible Privacy Policy
+            </a>
+            .
           </li>
         </ul>
         <p className="text-neutral-700 dark:text-neutral-300">
@@ -320,11 +329,14 @@ export default function PrivacyPage() {
           FORGE does not set advertising cookies, tracking cookies, or any
           cookies for behavioral profiling.
         </p>
-        <p className="text-neutral-700 dark:text-neutral-300">
+        <p className="mb-3 text-neutral-700 dark:text-neutral-300">
           Because the only cookies in use are strictly necessary for the service
           to function, a cookie-consent banner is not required under most
-          consent-banner regulations (such as the EU Cookie Directive). This
-          will be re-evaluated if and when an analytics service is added.
+          consent-banner regulations (such as the EU Cookie Directive).
+        </p>
+        <p className="text-neutral-700 dark:text-neutral-300">
+          Our analytics provider (Plausible) is cookieless by design — see §4
+          for details.
         </p>
       </section>
 

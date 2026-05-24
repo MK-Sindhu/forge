@@ -50,6 +50,8 @@ export default async function RootLayout({
     }
   }
 
+  const plausibleDomain = process.env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN;
+
   return (
     <ClerkProvider>
       <html
@@ -57,6 +59,13 @@ export default async function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
       >
         <body className="flex min-h-full flex-col bg-white dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100">
+          {plausibleDomain && (
+            <script
+              defer
+              data-domain={plausibleDomain}
+              src="https://plausible.io/js/script.js"
+            />
+          )}
           {/* ----------------------------------------------------------------
               Top nav — uses Clerk's <Show> server component to branch on
               auth state without a client boundary at the layout level.

@@ -149,7 +149,7 @@ Schema additions + locked design decisions for Slice 7 are recorded in `PROJECT.
 | Unsuspend button in admin UI | ✅ Shipped — Suspended tab + `UnsuspendButton` on `/admin/reports?view=suspended` |
 | Onboarding pass — empty-feed state for new users | ✅ Shipped — `WelcomeCallout` + actionable empty states |
 | 30–50 seed worlds — build / source CC-licensed `.glb` | ⬜ |
-| Basic analytics — Plausible or PostHog | ⬜ |
+| Basic analytics — Plausible or PostHog | 🟡 Code wired; founder must create Plausible account + set `NEXT_PUBLIC_PLAUSIBLE_DOMAIN` in Vercel to activate |
 | Launch plan: r/threejs + r/blenderhelp first, X/Bluesky parallel, HN last after 200+ users | ⬜ |
 | First public launch (mark date when done) | ⬜ |
 

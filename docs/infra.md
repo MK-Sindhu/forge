@@ -37,6 +37,22 @@
 | CI | GitHub Actions | Inline placeholders in `ci.yml` (real values not needed for build) |
 | Production | Vercel | Vercel dashboard env vars |
 
+### Canonical env vars
+
+| Variable | Required | Notes |
+|---|---|---|
+| `DATABASE_URL` | Yes | Neon Postgres connection string |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Yes | Clerk publishable key |
+| `CLERK_SECRET_KEY` | Yes | Clerk secret key |
+| `R2_ACCOUNT_ID` | Yes | Cloudflare account ID |
+| `R2_ACCESS_KEY_ID` | Yes | R2 S3-compat access key |
+| `R2_SECRET_ACCESS_KEY` | Yes | R2 S3-compat secret key |
+| `R2_BUCKET_GLB` | Yes | `forge-glb` |
+| `R2_BUCKET_MEDIA` | Yes | `forge-media` |
+| `R2_PUBLIC_URL_GLB` | Yes | Public base URL for the GLB bucket |
+| `R2_PUBLIC_URL_MEDIA` | Yes | Public base URL for the media bucket |
+| `NEXT_PUBLIC_PLAUSIBLE_DOMAIN` | No | Analytics domain (e.g. `forge-black-eta.vercel.app`). If unset, no analytics script renders. See Analytics section below. |
+
 ### Important gotcha — env vars are duplicated
 
 Vercel uses real values. CI uses placeholders. They must stay in sync **manually** when a new env var is added. When adding a var:
@@ -164,6 +180,38 @@ git log --oneline -5     # Recent commits
 - **Cloudflare R2:** dash.cloudflare.com → R2 (forge-glb + forge-media)
 - **GitHub Actions:** https://github.com/MK-Sindhu/forge/actions
 - **Clerk:** dashboard.clerk.com
+
+## Analytics (Plausible)
+
+Plausible is wired but env-gated. Until `NEXT_PUBLIC_PLAUSIBLE_DOMAIN` is
+set in Vercel, no analytics script loads and no traffic goes to Plausible.
+
+### To enable in production
+
+1. Create a Plausible account at https://plausible.io/register
+   (cheapest plan is $9/mo for 10k monthly pageviews — fine for launch).
+2. Add the site `forge-black-eta.vercel.app` (or custom domain when it
+   lands) in the Plausible dashboard.
+3. In Vercel → Settings → Environment Variables, add:
+   - Key: `NEXT_PUBLIC_PLAUSIBLE_DOMAIN`
+   - Value: `forge-black-eta.vercel.app` (exactly what you set in Plausible)
+   - Scope: Production (and Preview if you want preview-deploy stats)
+4. Trigger a redeploy (push any commit or "Redeploy" in Vercel).
+5. Visit the site once; confirm a pageview lands in the Plausible
+   dashboard within ~30 seconds.
+
+### What's tracked
+
+Plausible's default script: pageviews + referrer + browser + OS + screen
+size + country (derived from IP, then IP discarded). No cookies. No
+cross-site tracking. No personal data leaves the browser.
+
+### Privacy Policy obligation
+
+If you add Plausible custom events (e.g. tracking specific button clicks),
+update the Privacy Policy §4 description before the deploy. Plausible
+custom events still don't use cookies but the policy should accurately
+describe what's tracked.
 
 ## When Things Break
 

@@ -31,6 +31,7 @@
 | 21 | Trending feed tab | 7 | ✅ Verified |
 | 22 | Notifications | 7 | ✅ Verified |
 | 23 | Onboarding callout for fresh users | launch-ops | ✅ Shipped |
+| 24 | Analytics (Plausible, env-gated) | launch-ops | 🟡 Code wired; needs Plausible account + `NEXT_PUBLIC_PLAUSIBLE_DOMAIN` in Vercel |
 
 ---
 
@@ -279,6 +280,19 @@ Tab routing: `?status=open|resolved|dismissed` for report-status views; `?view=s
 | DB | No schema changes. Reads from existing `worlds` and `follows` tables. |
 
 **Stateless design:** `isFreshUser = !uploadedRow && !followsRow`. The callout disappears automatically the moment the user uploads their first world OR follows their first creator — no explicit dismiss, no cookie, no localStorage. This is intentional: the natural user action already solves the condition the callout targets.
+
+## 24. Analytics (Plausible, env-gated)
+
+**Launch-ops** · Privacy-first pageview tracking. Cookieless by design. No tracking script renders unless explicitly enabled in production.
+
+| Layer | Where |
+|---|---|
+| Frontend | `src/app/layout.tsx` renders `<script defer data-domain={...} src="https://plausible.io/js/script.js" />` ONLY when `process.env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN` is set. Empty / unset → no script. Inline server-rendered, no `next/script` wrapper needed. |
+| Backend | None. Plausible runs client-side; pageviews POST directly from the browser to plausible.io. FORGE servers see no analytics traffic. |
+| Env | `NEXT_PUBLIC_PLAUSIBLE_DOMAIN` (optional). Set to the Plausible site domain (e.g. `forge-black-eta.vercel.app`) in Vercel Production once a Plausible account exists. CI has the placeholder `""` so builds pass without rendering the script. |
+| Privacy | Plausible is cookieless; tracks pageviews + referrer + browser + OS + screen size + country (derived from IP, then IP discarded). No personal data leaves the browser. Privacy Policy §4 + §6 already describe this accurately. |
+
+**To activate:** see `docs/infra.md` "Analytics (Plausible)" section — create account, set the env var in Vercel, redeploy, verify a pageview lands in the Plausible dashboard.
 
 ## Parking Lot Features (Future Phases)
 
