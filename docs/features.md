@@ -24,7 +24,7 @@
 | 14 | Reports / flagging | 6 | ✅ Verified |
 | 15 | Admin moderation tools (+ Suspended tab + Unsuspend button) | 6 + launch-ops | ✅ Verified |
 | 16 | Suspensions + safety-valve report endpoint + Unsuspend UI | 6 + launch-ops | ✅ Verified |
-| 17 | DMCA + Footer + Terms (draft) | 6 + launch-ops | 🟡 DMCA page live (placeholder email); Terms page live as reviewable draft (amber DRAFT banner, pending attorney review). Both need final copy before public launch. |
+| 17 | DMCA + Footer + Terms (draft) + Privacy Policy (draft) | 6 + launch-ops | 🟡 DMCA page live (placeholder email); Terms page live as reviewable draft (amber DRAFT banner, 11 sections, links to Privacy); Privacy Policy page live as reviewable draft (amber DRAFT banner, 10 sections, cross-links to Terms). Footer now has three links: DMCA · Terms · Privacy. All three need final copy + attorney review before public launch. |
 | 18 | Tags on worlds | 7 | ✅ Verified |
 | 19 | Search (Postgres FTS) | 7 | ✅ Verified |
 | 20 | View counts | 7 | ✅ Verified |
@@ -194,17 +194,19 @@ Tab routing: `?status=open|resolved|dismissed` for report-status views; `?view=s
 | Backend | `requireActiveDbUser()` on 12 write endpoints; `requireAdmin()` for the suspend/unsuspend actions; suspend self-action blocked |
 | DB | `users.suspended_at` (nullable timestamp — null means active) |
 
-## 16. DMCA / Footer / Terms (draft)
+## 16. DMCA / Footer / Terms (draft) / Privacy Policy (draft)
 
-**Slice 6 + launch-ops** · Footer block on root layout with DMCA + Terms links.
+**Slice 6 + launch-ops** · Footer block on root layout with DMCA + Terms + Privacy links. Both legal pages ship as reviewable drafts with amber DRAFT banners.
 
 | Layer | Where |
 |---|---|
-| Frontend | Footer in root layout; `/legal/dmca` (placeholder email — `dmca@forge.example`); `/legal/terms` (draft — amber DRAFT banner, 11 sections, pending attorney review) |
+| Frontend | Footer in root layout (3 links: DMCA · Terms · Privacy); `/legal/dmca` (placeholder email — `dmca@forge.example`); `/legal/terms` (draft — amber DRAFT banner, 11 sections, links to Privacy in Contact section, pending attorney review); `/legal/privacy` (draft — amber DRAFT banner, 10 sections, cross-links to Terms, pending attorney review) |
 
 **DMCA page** needs real contact email before public launch (`dmca@forge.example` is a placeholder).
 
-**Terms page** ships as a reviewable draft. Amber DRAFT banner is prominent. Governing law and contact email (`legal@forge.example`) are marked placeholders. Attorney review required before public launch. The DMCA page now links back to Terms.
+**Terms page** ships as a reviewable draft. Amber DRAFT banner is prominent. Governing law and contact email (`legal@forge.example`) are marked placeholders. Links to Privacy Policy. Attorney review required before public launch.
+
+**Privacy Policy page** ships as a reviewable draft (2026-05-25). Amber DRAFT banner is prominent. Covers: account data collected via Clerk, device/IP data via Vercel, behavioral data for signed-in users only (anonymous views not tracked), third-party providers (Clerk / Vercel / Neon / Cloudflare), public content, session-only cookies, data retention + deletion, GDPR-style user rights, children's privacy (under-13 prohibition), policy change process. Analytics section explicitly notes "none today" and commits to updating this policy when analytics ships. Contact email (`privacy@forge.example`) and governing jurisdiction are explicit placeholders. Attorney review required before public launch. When analytics (Plausible/PostHog) ships, Section 4 of this policy must be updated.
 
 ---
 

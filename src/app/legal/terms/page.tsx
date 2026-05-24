@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export const metadata = {
   title: "Terms of Service — FORGE",
   description: "FORGE Terms of Service — the rules governing use of the platform.",
@@ -289,6 +291,17 @@ export default function TermsPage() {
         <h2 className="mb-3 text-xl font-semibold text-neutral-900 dark:text-neutral-100">
           Contact
         </h2>
+        <p className="mb-3 text-neutral-700 dark:text-neutral-300">
+          For information about how FORGE collects and handles your personal
+          data, see our{" "}
+          <Link
+            href="/legal/privacy"
+            className="underline hover:text-neutral-900 dark:hover:text-neutral-100"
+          >
+            Privacy Policy
+          </Link>
+          .
+        </p>
         <p className="text-neutral-700 dark:text-neutral-300">
           For questions or concerns about these Terms, contact:{" "}
           <a

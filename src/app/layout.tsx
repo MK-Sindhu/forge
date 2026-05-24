@@ -144,6 +144,12 @@ export default async function RootLayout({
                 >
                   Terms
                 </Link>
+                <Link
+                  href="/legal/privacy"
+                  className="hover:text-neutral-700 dark:hover:text-neutral-300"
+                >
+                  Privacy
+                </Link>
               </nav>
             </div>
           </footer>

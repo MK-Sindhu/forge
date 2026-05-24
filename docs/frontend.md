@@ -31,6 +31,7 @@ src/
 │   ├── admin/reports/        # Admin moderation queue
 │   ├── legal/dmca/           # DMCA policy page (placeholder email — replace before public launch)
 │   ├── legal/terms/          # Draft Terms of Service (amber DRAFT banner; attorney review pending)
+│   ├── legal/privacy/        # Draft Privacy Policy (amber DRAFT banner; attorney review pending)
 │   ├── sign-in/[[...sign-in]]/   # Clerk catch-all — renders <SignIn />
 │   └── sign-up/[[...sign-up]]/   # Clerk catch-all — renders <SignUp />
 └── components/               # Shared React components (each in its own kebab-case directory)
@@ -67,6 +68,7 @@ src/
     └── welcome-callout/
         └── WelcomeCallout.tsx     # server component; onboarding callout for fresh signed-in users (no uploads + no follows); headline + 3 action cards (Upload / Trending / Search); no props — always renders the same content; mounts in page.tsx only when isFreshUser === true
 # Note: Header and Footer are inlined in src/app/layout.tsx, not separate component directories.
+# Footer nav links: DMCA · Terms · Privacy (all three live in /legal/)
 ```
 
 ## Pages
@@ -82,7 +84,8 @@ src/
 | `/sign-up/[[...sign-up]]` | `src/app/sign-up/[[...sign-up]]/page.tsx` | Server (Clerk drop-in) | Clerk sign-up | 0 |
 | `/admin/reports` | `src/app/admin/reports/page.tsx` | Server (admin gate) | Moderation queue. Four tabs: Open (`?status=open` or default) / Resolved (`?status=resolved`) / Dismissed (`?status=dismissed`) / Suspended (`?view=suspended`). The Suspended view queries `users WHERE suspended_at IS NOT NULL ORDER BY suspended_at DESC` and renders avatar + username + "Suspended {relative time}" + `UnsuspendButton` per row. Status tabs use `?status=...`; the Suspended tab uses a separate `?view=suspended` param to distinguish the shape difference. | 6, launch-ops |
 | `/legal/dmca` | `src/app/legal/dmca/page.tsx` | Static | DMCA placeholder | 6 |
-| `/legal/terms` | `src/app/legal/terms/page.tsx` | Static (server component) | Draft Terms of Service — 11 numbered sections covering acceptance, eligibility, account rules, creator ownership + license grant, content standards, reporting, DMCA cross-link, termination, no-crypto policy, disclaimers, and changes. Includes amber DRAFT banner. Pending attorney review + final copy before public launch. | launch-ops |
+| `/legal/terms` | `src/app/legal/terms/page.tsx` | Static (server component) | Draft Terms of Service — 11 numbered sections covering acceptance, eligibility, account rules, creator ownership + license grant, content standards, reporting, DMCA cross-link, termination, no-crypto policy, disclaimers, and changes. Includes amber DRAFT banner. Links to Privacy Policy in Contact section. Pending attorney review + final copy before public launch. | launch-ops |
+| `/legal/privacy` | `src/app/legal/privacy/page.tsx` | Static (server component) | Draft Privacy Policy — 10 numbered sections covering: what is collected (account info via Clerk, device/IP data via Vercel, behavioral data for signed-in users only), how data is used, third-party providers (Clerk, Vercel, Neon, Cloudflare R2; analytics placeholder), public content, cookies (Clerk session only — no tracking cookies), data retention + deletion, user rights (GDPR-style), children's privacy (under-13 prohibition), policy changes. Includes amber DRAFT banner. All contact emails are `privacy@forge.example` placeholder. Analytics section explicitly notes "none today" and promises update when added. Cross-links to Terms. Pending attorney review + final copy before public launch. | launch-ops |
 | `/notifications` | `src/app/notifications/page.tsx` | Server (auth-gated) | Notification feed. First page fetched via direct DB query. Cursor pagination via `NotificationList` client component. `MarkAllReadOnView` fires mark-read POST after 1.5s. Redirects to `/sign-in?redirect_url=/notifications` when signed out. | 7.5 |
 
 ## Clerk v7 Quirks (Critical)
