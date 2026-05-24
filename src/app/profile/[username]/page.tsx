@@ -1,10 +1,12 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { eq } from "drizzle-orm";
+import { auth } from "@clerk/nextjs/server";
+import { eq, and, count } from "drizzle-orm";
 import { db } from "@/db";
-import { users } from "@/db/schema";
+import { users, follows } from "@/db/schema";
 import { WorldCardMedia } from "@/components/world-card-media/WorldCardMedia";
+import { FollowButton } from "@/components/follow-button/FollowButton";
 
 export default async function ProfilePage({
   params,
@@ -41,6 +43,51 @@ export default async function ProfilePage({
     notFound();
   }
 
+  // --- Follow counts (computed on read; no denormalized column yet) ---------
+  const [followerCountResult] = await db
+    .select({ count: count() })
+    .from(follows)
+    .where(eq(follows.followeeId, user.id));
+  const [followingCountResult] = await db
+    .select({ count: count() })
+    .from(follows)
+    .where(eq(follows.followerId, user.id));
+
+  const followerCount = Number(followerCountResult.count);
+  const followingCount = Number(followingCountResult.count);
+
+  // --- Auth-aware state -----------------------------------------------------
+  const { userId: clerkUserId } = await auth();
+  let isFollowedByCurrentUser = false;
+  let isOwnProfile = false;
+
+  if (clerkUserId) {
+    const [currentDbUser] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.clerkId, clerkUserId))
+      .limit(1);
+
+    if (currentDbUser) {
+      isOwnProfile = currentDbUser.id === user.id;
+      if (!isOwnProfile) {
+        const [followRow] = await db
+          .select({ followerId: follows.followerId })
+          .from(follows)
+          .where(
+            and(
+              eq(follows.followerId, currentDbUser.id),
+              eq(follows.followeeId, user.id)
+            )
+          )
+          .limit(1);
+        isFollowedByCurrentUser = !!followRow;
+      }
+    }
+  }
+
+  const signedIn = !!clerkUserId;
+
   return (
     <main className="mx-auto max-w-5xl px-4 py-8">
       {/* Profile header */}
@@ -55,11 +102,26 @@ export default async function ProfilePage({
           />
         )}
         <div>
-          <h1 className="text-2xl font-semibold">{user.username}</h1>
-          <p className="text-sm text-neutral-600 dark:text-neutral-400">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-semibold">{user.username}</h1>
+            {!isOwnProfile && (
+              <FollowButton
+                username={user.username}
+                initialFollowing={isFollowedByCurrentUser}
+                signedIn={signedIn}
+              />
+            )}
+          </div>
+          <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-400">
             {user.worlds.length}{" "}
-            {user.worlds.length === 1 ? "world" : "worlds"} · joined{" "}
-            {new Date(user.createdAt).toLocaleDateString()}
+            {user.worlds.length === 1 ? "world" : "worlds"}
+            {" · "}
+            {followerCount}{" "}
+            {followerCount === 1 ? "follower" : "followers"}
+            {" · "}
+            {followingCount} following
+            {" · "}
+            joined {new Date(user.createdAt).toLocaleDateString()}
           </p>
         </div>
       </header>
@@ -89,6 +151,7 @@ export default async function ProfilePage({
                     alt={world.title}
                     sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, 25vw"
                     aspectRatio="square"
+                    likesCount={world.likesCount}
                   />
                   <div className="p-3">
                     <h2 className="line-clamp-2 text-sm font-medium text-neutral-900 dark:text-neutral-100">

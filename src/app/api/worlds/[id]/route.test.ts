@@ -4,19 +4,38 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // Mock hoisting
 // ---------------------------------------------------------------------------
 
-const { mockFindFirst } = vi.hoisted(() => ({
+const { mockFindFirst, mockAuth, mockSelectFrom } = vi.hoisted(() => ({
   mockFindFirst: vi.fn(),
+  mockAuth: vi.fn(),
+  // mockSelectFrom covers db.select().from().where().limit() chains used for
+  // the user-lookup and like-lookup in the opportunistic auth path.
+  mockSelectFrom: vi.fn(),
 }));
 
-// Mock @/db — the GET handler uses db.query.worlds.findFirst (relational API).
-vi.mock("@/db", () => ({
-  db: {
-    query: {
-      worlds: {
-        findFirst: (...args: unknown[]) => mockFindFirst(...args),
+// Mock @/db — the GET handler uses:
+//   db.query.worlds.findFirst  (relational query for world + author + media)
+//   db.select().from().where().limit()  (user lookup, like lookup)
+vi.mock("@/db", () => {
+  const chainable = {
+    from: () => chainable,
+    where: () => chainable,
+    limit: (..._args: unknown[]) => mockSelectFrom(),
+  };
+  return {
+    db: {
+      query: {
+        worlds: {
+          findFirst: (...args: unknown[]) => mockFindFirst(...args),
+        },
       },
+      select: () => chainable,
     },
-  },
+  };
+});
+
+// Mock @clerk/nextjs/server — default to signed-out (userId: null).
+vi.mock("@clerk/nextjs/server", () => ({
+  auth: () => mockAuth(),
 }));
 
 // Import the handler AFTER mocks are registered.
@@ -61,6 +80,9 @@ const DB_WORLD_ROW = {
   ],
 };
 
+// DB user row returned by the user-lookup chain (signed-in path).
+const DB_CURRENT_USER = { id: "db-user-uuid-viewer-001" };
+
 // ---------------------------------------------------------------------------
 // Helper: build a Request for GET /api/worlds/[id]
 // (body is irrelevant for GET, but we construct it for completeness)
@@ -79,6 +101,9 @@ function makeRequest(worldId: string): [Request, { params: Promise<{ id: string 
 describe("GET /api/worlds/[id] — UUID validation", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    // UUID-validation tests never reach auth — but auth is still called
+    // after the world is found, so set a safe default for completeness.
+    mockAuth.mockResolvedValue({ userId: null });
   });
 
   it("returns 400 for a non-UUID id", async () => {
@@ -120,6 +145,7 @@ describe("GET /api/worlds/[id] — UUID validation", () => {
 describe("GET /api/worlds/[id] — Not found", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    mockAuth.mockResolvedValue({ userId: null });
   });
 
   it("returns 404 when db returns undefined", async () => {
@@ -148,13 +174,15 @@ describe("GET /api/worlds/[id] — Not found", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Block C — Success path
+// Block C — Success path (signed-out — isLikedByCurrentUser always false)
 // ---------------------------------------------------------------------------
 
 describe("GET /api/worlds/[id] — Success", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mockFindFirst.mockResolvedValue(DB_WORLD_ROW);
+    // Default: signed-out visitor.
+    mockAuth.mockResolvedValue({ userId: null });
   });
 
   it("returns 200 for a valid UUID that exists", async () => {
@@ -282,9 +310,83 @@ describe("GET /api/worlds/[id] — Success", () => {
       "createdAt",
       "author",
       "media",
+      "isLikedByCurrentUser",
     ]);
     const actualKeys = new Set(Object.keys(body));
 
     expect(actualKeys).toEqual(expectedKeys);
+  });
+
+  it("returns isLikedByCurrentUser: false for a signed-out visitor", async () => {
+    // mockAuth already returns { userId: null } in beforeEach
+    const [req, ctx] = makeRequest(WORLD_ID);
+    const res = await GET(req, ctx);
+    const body = await res.json();
+
+    expect(body.isLikedByCurrentUser).toBe(false);
+  });
+
+  it("does not query the likes table when signed-out", async () => {
+    // mockAuth returns { userId: null } — no DB calls after findFirst
+    const [req, ctx] = makeRequest(WORLD_ID);
+    await GET(req, ctx);
+
+    // mockSelectFrom covers the chained .limit() call on both user-lookup and
+    // like-lookup chains. For a signed-out user it must never be called.
+    expect(mockSelectFrom).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Block D — isLikedByCurrentUser (signed-in paths)
+// ---------------------------------------------------------------------------
+
+describe("GET /api/worlds/[id] — isLikedByCurrentUser (signed-in)", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mockFindFirst.mockResolvedValue(DB_WORLD_ROW);
+    mockAuth.mockResolvedValue({ userId: "clerk_user_abc" });
+  });
+
+  it("returns isLikedByCurrentUser: true when the signed-in user has liked the world", async () => {
+    // First select() chain resolves the DB user; second resolves the like row.
+    mockSelectFrom
+      .mockResolvedValueOnce([DB_CURRENT_USER])  // user lookup
+      .mockResolvedValueOnce([{ userId: DB_CURRENT_USER.id }]);  // like exists
+
+    const [req, ctx] = makeRequest(WORLD_ID);
+    const res = await GET(req, ctx);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.isLikedByCurrentUser).toBe(true);
+  });
+
+  it("returns isLikedByCurrentUser: false when the signed-in user has NOT liked the world", async () => {
+    // User found but no like row.
+    mockSelectFrom
+      .mockResolvedValueOnce([DB_CURRENT_USER])  // user lookup
+      .mockResolvedValueOnce([]);                 // no like row
+
+    const [req, ctx] = makeRequest(WORLD_ID);
+    const res = await GET(req, ctx);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.isLikedByCurrentUser).toBe(false);
+  });
+
+  it("returns isLikedByCurrentUser: false when signed-in user has no DB row yet", async () => {
+    // Clerk userId present but user hasn't uploaded/bootstrapped a DB row.
+    mockSelectFrom.mockResolvedValueOnce([]);  // user lookup returns empty
+
+    const [req, ctx] = makeRequest(WORLD_ID);
+    const res = await GET(req, ctx);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.isLikedByCurrentUser).toBe(false);
+    // Like-lookup must NOT be called — only one select chain fires.
+    expect(mockSelectFrom).toHaveBeenCalledTimes(1);
   });
 });

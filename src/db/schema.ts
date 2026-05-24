@@ -92,11 +92,40 @@ export const likes = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// follows
+// Composite PK on (follower_id, followee_id).
+// Index on followee_id for the "who follows X?" query path.
+// CHECK constraint prevents self-follow at the DB level (defense in depth;
+// the API layer rejects it earlier).
+// ---------------------------------------------------------------------------
+export const follows = pgTable(
+  "follows",
+  {
+    followerId: uuid("follower_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    followeeId: uuid("followee_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.followerId, t.followeeId] }),
+    index("follows_followee_id_idx").on(t.followeeId),
+    check("follows_no_self_follow", sql`${t.followerId} <> ${t.followeeId}`),
+  ]
+);
+
+// ---------------------------------------------------------------------------
 // relations (for Drizzle joined queries)
 // ---------------------------------------------------------------------------
 export const usersRelations = relations(users, ({ many }) => ({
   worlds: many(worlds),
   likes: many(likes),
+  // Slice 3 — follows
+  // relationName disambiguates the two FKs from follows → users
+  following: many(follows, { relationName: "follower" }), // rows where this user IS the follower
+  followers: many(follows, { relationName: "followee" }), // rows where this user IS the followee
 }));
 
 export const worldsRelations = relations(worlds, ({ one, many }) => ({
@@ -112,4 +141,17 @@ export const worldMediaRelations = relations(worldMedia, ({ one }) => ({
 export const likesRelations = relations(likes, ({ one }) => ({
   user: one(users, { fields: [likes.userId], references: [users.id] }),
   world: one(worlds, { fields: [likes.worldId], references: [worlds.id] }),
+}));
+
+export const followsRelations = relations(follows, ({ one }) => ({
+  follower: one(users, {
+    fields: [follows.followerId],
+    references: [users.id],
+    relationName: "follower",
+  }),
+  followee: one(users, {
+    fields: [follows.followeeId],
+    references: [users.id],
+    relationName: "followee",
+  }),
 }));

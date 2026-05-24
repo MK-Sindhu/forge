@@ -11,6 +11,8 @@ interface Props {
   sizes: string;
   /** Controls the container's aspect ratio class. Defaults to "video" (16:9). */
   aspectRatio?: "video" | "square";
+  /** When provided and > 0, shows a read-only heart+count badge over the thumbnail. */
+  likesCount?: number;
 }
 
 export function WorldCardMedia({
@@ -19,6 +21,7 @@ export function WorldCardMedia({
   alt,
   sizes,
   aspectRatio = "video",
+  likesCount,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [isHovering, setIsHovering] = useState(false);
@@ -74,6 +77,14 @@ export function WorldCardMedia({
           }`}
           aria-hidden // decorative — thumbnail covers the semantics
         />
+      )}
+      {likesCount !== undefined && likesCount > 0 && (
+        <div className="pointer-events-none absolute left-2 top-2 flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-xs text-white backdrop-blur-sm">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+            <path d="M12 21l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.18L12 21z" />
+          </svg>
+          <span>{likesCount}</span>
+        </div>
       )}
     </div>
   );

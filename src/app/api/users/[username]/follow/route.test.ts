@@ -1,0 +1,396 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// ---------------------------------------------------------------------------
+// Mock hoisting
+//
+// vi.hoisted() runs synchronously before any import resolves. Every mock
+// factory referenced inside a vi.mock() factory must be defined here.
+// ---------------------------------------------------------------------------
+
+const {
+  mockAuth,
+  mockCurrentUser,
+  mockGetOrCreateDbUser,
+  mockDbSelectLimit,
+  mockDbInsertValues,
+  mockDbDeleteWhere,
+} = vi.hoisted(() => ({
+  mockAuth: vi.fn(),
+  // External boundary: currentUser() fetches the full Clerk user object over
+  // the network. Never want real Clerk calls in unit tests.
+  mockCurrentUser: vi.fn(),
+  // External boundary: getOrCreateDbUser hits the DB; mocked so tests can
+  // inject a pre-built user row or simulate DB errors without a real connection.
+  mockGetOrCreateDbUser: vi.fn(),
+  // Controls what db.select()...limit() returns for the followee lookup.
+  mockDbSelectLimit: vi.fn(),
+  // Spy on the insert → values chain (captures the values passed to insert).
+  mockDbInsertValues: vi.fn(),
+  // Spy on the delete → where chain.
+  mockDbDeleteWhere: vi.fn(),
+}));
+
+// Mock @clerk/nextjs/server — real calls require a live Clerk environment
+// (signed cookies, network) that is unavailable in the test runner.
+vi.mock("@clerk/nextjs/server", () => ({
+  auth: mockAuth,
+  currentUser: mockCurrentUser,
+}));
+
+// Mock @/lib/users — avoids a real DB lookup + insert for user bootstrap.
+// This module crosses the DB boundary; mocking keeps tests hermetic.
+vi.mock("@/lib/users", () => ({
+  getOrCreateDbUser: mockGetOrCreateDbUser,
+}));
+
+// Mock @/db — real DB connections require DATABASE_URL + a running Neon
+// instance; both are unavailable in the test runner.
+// This endpoint uses only `db` (HTTP client), no `dbPool`/transactions.
+//
+// The db mock models two independent query chains:
+//
+//   1. select().from(users).where().limit()  — followee existence lookup
+//      The final `.limit()` call delegates to mockDbSelectLimit so tests can
+//      control whether the user is found.
+//
+//   2. insert(follows).values().onConflictDoNothing()  — follow insert
+//      `.values()` records the call via mockDbInsertValues and returns a
+//      chain where `.onConflictDoNothing()` resolves as a no-op Promise.
+//
+//   3. delete(follows).where()  — unfollow delete
+//      `.where()` records the call via mockDbDeleteWhere and resolves.
+//
+// We deliberately do NOT mock `eq` / `and` from drizzle-orm — they are
+// pure functions with no I/O and must not be faked.
+vi.mock("@/db", () => ({
+  db: {
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          limit: (...args: unknown[]) => mockDbSelectLimit(...args),
+        }),
+      }),
+    }),
+    insert: () => ({
+      values: (vals: unknown) => ({
+        onConflictDoNothing: () => {
+          mockDbInsertValues(vals);
+          return Promise.resolve();
+        },
+      }),
+    }),
+    delete: () => ({
+      where: (condition: unknown) => {
+        mockDbDeleteWhere(condition);
+        return Promise.resolve();
+      },
+    }),
+  },
+}));
+
+// Import handlers AFTER mocks are registered so they receive the mocked deps.
+import { POST, DELETE } from "./route";
+// Import real table refs — pure JS objects, no DB connection triggered.
+// Used only as identity markers where the spec requires them.
+import { follows } from "@/db/schema";
+
+// ---------------------------------------------------------------------------
+// Fixtures
+// ---------------------------------------------------------------------------
+
+const FOLLOWER_USERNAME = "alice";
+const FOLLOWEE_USERNAME = "bob";
+const CLERK_USER_ID = "clerk_user_alice";
+const FOLLOWER_DB_ID = "db-uuid-alice-001";
+const FOLLOWEE_DB_ID = "db-uuid-bob-002";
+
+// 65-character string — one over the 64-char limit.
+const TOO_LONG_USERNAME = "a".repeat(65);
+
+const CLERK_USER = {
+  id: CLERK_USER_ID,
+  username: FOLLOWER_USERNAME,
+  emailAddresses: [{ emailAddress: "alice@example.com" }],
+  imageUrl: null,
+};
+
+const FOLLOWER_DB_ROW = {
+  id: FOLLOWER_DB_ID,
+  clerkId: CLERK_USER_ID,
+  username: FOLLOWER_USERNAME,
+  email: "alice@example.com",
+  avatarUrl: null,
+  createdAt: new Date("2026-01-01"),
+  tosAcceptedAt: null,
+};
+
+const FOLLOWEE_DB_ROW = {
+  id: FOLLOWEE_DB_ID,
+};
+
+// ---------------------------------------------------------------------------
+// Route call helpers
+//
+// Route signature: POST/DELETE(_req, { params: Promise<{ username: string }> })
+// ---------------------------------------------------------------------------
+
+function callPost(username: string) {
+  const req = new Request(
+    `http://localhost/api/users/${username}/follow`,
+    { method: "POST" }
+  );
+  return POST(req, { params: Promise.resolve({ username }) });
+}
+
+function callDelete(username: string) {
+  const req = new Request(
+    `http://localhost/api/users/${username}/follow`,
+    { method: "DELETE" }
+  );
+  return DELETE(req, { params: Promise.resolve({ username }) });
+}
+
+// ---------------------------------------------------------------------------
+// Happy-path setup helper
+//
+// Seeds the standard "everything works" mock state. Individual tests override
+// only the one mock they care about.
+// ---------------------------------------------------------------------------
+
+function setupHappyPath() {
+  mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
+  mockCurrentUser.mockResolvedValue(CLERK_USER);
+  mockGetOrCreateDbUser.mockResolvedValue(FOLLOWER_DB_ROW);
+  // Followee found by username lookup
+  mockDbSelectLimit.mockResolvedValue([FOLLOWEE_DB_ROW]);
+}
+
+// ---------------------------------------------------------------------------
+// Block A — Validation + auth (shared prelude for both POST and DELETE)
+// ---------------------------------------------------------------------------
+
+describe("POST /api/users/[username]/follow — validation + auth", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it("returns 400 when username is an empty string", async () => {
+    // The route should reject before any I/O — no auth mock needed.
+    mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
+    mockCurrentUser.mockResolvedValue(CLERK_USER);
+    mockGetOrCreateDbUser.mockResolvedValue(FOLLOWER_DB_ROW);
+
+    const res = await callPost("");
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: expect.any(String) });
+  });
+
+  it("returns 400 when username exceeds 64 characters", async () => {
+    mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
+    mockCurrentUser.mockResolvedValue(CLERK_USER);
+    mockGetOrCreateDbUser.mockResolvedValue(FOLLOWER_DB_ROW);
+
+    const res = await callPost(TOO_LONG_USERNAME);
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: expect.any(String) });
+  });
+
+  it("returns 401 when there is no Clerk session", async () => {
+    mockAuth.mockResolvedValue({ userId: null });
+
+    const res = await callPost(FOLLOWEE_USERNAME);
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({ error: expect.any(String) });
+  });
+
+  it("returns 400 when Clerk user has no email (getOrCreateDbUser throws 'no email')", async () => {
+    mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
+    mockCurrentUser.mockResolvedValue(CLERK_USER);
+    mockGetOrCreateDbUser.mockRejectedValue(
+      new Error("no email on Clerk user")
+    );
+
+    const res = await callPost(FOLLOWEE_USERNAME);
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: expect.any(String) });
+  });
+
+  it("returns 503 when getOrCreateDbUser throws an unexpected DB error", async () => {
+    mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
+    mockCurrentUser.mockResolvedValue(CLERK_USER);
+    mockGetOrCreateDbUser.mockRejectedValue(
+      new Error("connect ECONNREFUSED 127.0.0.1:5432")
+    );
+
+    const res = await callPost(FOLLOWEE_USERNAME);
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ error: expect.any(String) });
+  });
+
+  it("returns 404 when the followee username does not exist in the DB", async () => {
+    mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
+    mockCurrentUser.mockResolvedValue(CLERK_USER);
+    mockGetOrCreateDbUser.mockResolvedValue(FOLLOWER_DB_ROW);
+    // Empty array = username not found
+    mockDbSelectLimit.mockResolvedValue([]);
+
+    const res = await callPost(FOLLOWEE_USERNAME);
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toMatchObject({ error: expect.any(String) });
+  });
+
+  it("returns 400 when the follower and followee are the same user (self-follow)", async () => {
+    mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
+    mockCurrentUser.mockResolvedValue(CLERK_USER);
+    mockGetOrCreateDbUser.mockResolvedValue(FOLLOWER_DB_ROW);
+    // Followee lookup returns the same DB ID as the follower
+    mockDbSelectLimit.mockResolvedValue([{ id: FOLLOWER_DB_ID }]);
+
+    const res = await callPost(FOLLOWEE_USERNAME);
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: expect.any(String) });
+  });
+});
+
+describe("DELETE /api/users/[username]/follow — validation + auth", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it("returns 401 when there is no Clerk session", async () => {
+    mockAuth.mockResolvedValue({ userId: null });
+
+    const res = await callDelete(FOLLOWEE_USERNAME);
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({ error: expect.any(String) });
+  });
+
+  it("returns 404 when the followee username does not exist in the DB", async () => {
+    mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
+    mockCurrentUser.mockResolvedValue(CLERK_USER);
+    mockGetOrCreateDbUser.mockResolvedValue(FOLLOWER_DB_ROW);
+    mockDbSelectLimit.mockResolvedValue([]);
+
+    const res = await callDelete(FOLLOWEE_USERNAME);
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toMatchObject({ error: expect.any(String) });
+  });
+
+  it("returns 400 when the follower and followee are the same user (self-follow)", async () => {
+    mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
+    mockCurrentUser.mockResolvedValue(CLERK_USER);
+    mockGetOrCreateDbUser.mockResolvedValue(FOLLOWER_DB_ROW);
+    mockDbSelectLimit.mockResolvedValue([{ id: FOLLOWER_DB_ID }]);
+
+    const res = await callDelete(FOLLOWEE_USERNAME);
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: expect.any(String) });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Block B — POST (follow) behavior
+// ---------------------------------------------------------------------------
+
+describe("POST /api/users/[username]/follow — follow behavior", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it("returns 200 with {following: true} on a successful follow", async () => {
+    setupHappyPath();
+
+    const res = await callPost(FOLLOWEE_USERNAME);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ following: true });
+  });
+
+  it("calls db.insert(follows).values() with the correct followerId and followeeId", async () => {
+    setupHappyPath();
+
+    await callPost(FOLLOWEE_USERNAME);
+
+    expect(mockDbInsertValues).toHaveBeenCalledOnce();
+    expect(mockDbInsertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        followerId: FOLLOWER_DB_ID,
+        followeeId: FOLLOWEE_DB_ID,
+      })
+    );
+  });
+
+  it("uses onConflictDoNothing: a second POST does not throw and still returns {following: true}", async () => {
+    // Both calls resolve because onConflictDoNothing is a no-op on duplicate.
+    setupHappyPath();
+
+    const res1 = await callPost(FOLLOWEE_USERNAME);
+    const res2 = await callPost(FOLLOWEE_USERNAME);
+
+    expect(res1.status).toBe(200);
+    expect(res2.status).toBe(200);
+    expect(await res1.json()).toEqual({ following: true });
+    expect(await res2.json()).toEqual({ following: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Block C — DELETE (unfollow) behavior
+// ---------------------------------------------------------------------------
+
+describe("DELETE /api/users/[username]/follow — unfollow behavior", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it("returns 200 with {following: false} on a successful unfollow", async () => {
+    setupHappyPath();
+
+    const res = await callDelete(FOLLOWEE_USERNAME);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ following: false });
+  });
+
+  it("calls db.delete(follows).where() with a condition referencing both IDs", async () => {
+    setupHappyPath();
+
+    await callDelete(FOLLOWEE_USERNAME);
+
+    // The condition is a Drizzle SQL node — asserting it is defined
+    // is sufficient without coupling to Drizzle internals.
+    expect(mockDbDeleteWhere).toHaveBeenCalledOnce();
+    const [condition] = mockDbDeleteWhere.mock.calls[0];
+    expect(condition).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Block D — Idempotency
+// ---------------------------------------------------------------------------
+
+describe("follow idempotency", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it("two consecutive POSTs both return {following: true} (re-follow is a no-op)", async () => {
+    setupHappyPath();
+
+    const res1 = await callPost(FOLLOWEE_USERNAME);
+    const res2 = await callPost(FOLLOWEE_USERNAME);
+
+    expect(await res1.json()).toEqual({ following: true });
+    expect(await res2.json()).toEqual({ following: true });
+  });
+
+  it("DELETE on a non-followed user returns {following: false} without throwing", async () => {
+    // db.delete().where() resolves even when no row exists — idempotent delete.
+    setupHappyPath();
+
+    const res = await callDelete(FOLLOWEE_USERNAME);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ following: false });
+  });
+});

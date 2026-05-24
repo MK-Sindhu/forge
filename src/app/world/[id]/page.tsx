@@ -1,8 +1,10 @@
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import Image from "next/image";
+import { auth } from "@clerk/nextjs/server";
 import { WorldViewerClient } from "./WorldViewerClient";
 import MediaCarousel from "@/components/media-carousel/MediaCarousel";
+import { LikeButton } from "@/components/like-button/LikeButton";
 
 export default async function WorldPage(
   { params }: { params: Promise<{ id: string }> }
@@ -17,10 +19,15 @@ export default async function WorldPage(
   const proto = h.get("x-forwarded-proto") ?? "http";
   const baseUrl = `${proto}://${host}`;
 
-  const res = await fetch(`${baseUrl}/api/worlds/${id}`, {
-    // World data may change (likes count); don't cache aggressively in Slice 1.
-    cache: "no-store",
-  });
+  // Run world fetch and auth check in parallel.
+  const [res, { userId }] = await Promise.all([
+    fetch(`${baseUrl}/api/worlds/${id}`, {
+      // World data may change (likes count); don't cache aggressively in Slice 1.
+      cache: "no-store",
+    }),
+    auth(),
+  ]);
+
   if (res.status === 404) {
     notFound(); // Renders not-found.tsx
   }
@@ -28,6 +35,7 @@ export default async function WorldPage(
     throw new Error(`Failed to load world: ${res.status}`);
   }
   const world = await res.json();
+  const signedIn = !!userId;
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8">
@@ -80,9 +88,16 @@ export default async function WorldPage(
       )}
 
       {/* Stat row */}
-      <div className="mt-6 flex gap-6 text-sm text-neutral-600 dark:text-neutral-400">
-        <span>{world.likesCount} {world.likesCount === 1 ? "like" : "likes"}</span>
-        <span>{world.views} {world.views === 1 ? "view" : "views"}</span>
+      <div className="mt-6 flex items-center gap-4">
+        <LikeButton
+          worldId={world.id}
+          initialLiked={world.isLikedByCurrentUser ?? false}
+          initialLikesCount={world.likesCount}
+          signedIn={signedIn}
+        />
+        <span className="text-sm text-neutral-600 dark:text-neutral-400">
+          {world.views} {world.views === 1 ? "view" : "views"}
+        </span>
       </div>
     </main>
   );

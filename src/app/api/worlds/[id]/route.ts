@@ -4,15 +4,20 @@
  * Public read — no auth required. Returns a single world with its author
  * (id, username, avatarUrl only — no PII) and its ordered media gallery.
  *
+ * Opportunistically checks whether the signed-in user has liked this world.
+ * Signed-out requests always get isLikedByCurrentUser: false (no DB hit).
+ * We intentionally do NOT call getOrCreateDbUser here — a GET must not write.
+ *
  * TODO (Slice 7): increment views counter on read — intentionally omitted here
  * to keep GET handlers side-effect-free until the discovery-polish slice.
  */
 
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { auth } from "@clerk/nextjs/server";
+import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { worlds } from "@/db/schema";
+import { worlds, likes, users } from "@/db/schema";
 
 // ---------------------------------------------------------------------------
 // Param validation
@@ -61,7 +66,30 @@ export async function GET(
     return NextResponse.json({ error: "World not found" }, { status: 404 });
   }
 
-  // --- 4. Shape the response — only expose safe fields ---------------------
+  // --- 4. Opportunistic like check (read-only — no DB write on GET) --------
+  let isLikedByCurrentUser = false;
+
+  const { userId: clerkUserId } = await auth();
+  if (clerkUserId) {
+    // Look up DB user by clerk_id only — do NOT create one.
+    const [dbUser] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.clerkId, clerkUserId))
+      .limit(1);
+
+    if (dbUser) {
+      const [likeRow] = await db
+        .select({ userId: likes.userId })
+        .from(likes)
+        .where(and(eq(likes.userId, dbUser.id), eq(likes.worldId, parsed.data)))
+        .limit(1);
+
+      isLikedByCurrentUser = !!likeRow;
+    }
+  }
+
+  // --- 5. Shape the response — only expose safe fields ---------------------
   // row.user is guaranteed non-null because userId is a NOT NULL FK, but
   // TypeScript infers it as possibly undefined from the relational query.
   const author = row.user!;
@@ -87,5 +115,6 @@ export async function GET(
       sizeBytes: m.sizeBytes,
       position: m.position,
     })),
+    isLikedByCurrentUser,
   });
 }

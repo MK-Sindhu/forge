@@ -15,6 +15,13 @@
       "when": 1779535700000,
       "tag": "0001_slice1_schema_migration",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779540000000,
+      "tag": "0002_slice3_follows",
+      "breakpoints": true
     }
   ]
 }

@@ -1,8 +1,10 @@
 import Link from "next/link";
 import Image from "next/image";
-import { desc } from "drizzle-orm";
+import { redirect } from "next/navigation";
+import { desc, eq, inArray } from "drizzle-orm";
+import { auth } from "@clerk/nextjs/server";
 import { db } from "@/db";
-import { worlds } from "@/db/schema";
+import { worlds, users, follows } from "@/db/schema";
 import { WorldCardMedia } from "@/components/world-card-media/WorldCardMedia";
 
 // ---------------------------------------------------------------------------
@@ -24,36 +26,128 @@ type FeedWorld = {
 // ---------------------------------------------------------------------------
 // Page (server component — no 'use client')
 // ---------------------------------------------------------------------------
-export default async function FeedPage() {
-  const rows = await db.query.worlds.findMany({
-    orderBy: [desc(worlds.createdAt)],
-    limit: 50,
-    columns: {
-      id: true,
-      title: true,
-      likesCount: true,
-      views: true,
-      createdAt: true,
-    },
-    with: {
-      user: {
-        columns: { username: true, avatarUrl: true },
+export default async function FeedPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  const { tab } = await searchParams;
+  // Closed-set parse: only "following" is accepted; everything else → "recent"
+  const activeTab: "recent" | "following" =
+    tab === "following" ? "following" : "recent";
+
+  // --- Auth context ----------------------------------------------------------
+  const { userId: clerkUserId } = await auth();
+  let currentDbUserId: string | null = null;
+
+  if (clerkUserId) {
+    const [row] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.clerkId, clerkUserId))
+      .limit(1);
+    if (row) currentDbUserId = row.id;
+  }
+
+  // Following tab requires sign-in. Redirect if not authenticated.
+  if (activeTab === "following" && !clerkUserId) {
+    redirect("/sign-in?redirect_url=/?tab=following");
+  }
+
+  // --- Queries (only one fires per request) ----------------------------------
+  let rows: FeedWorld[];
+
+  if (activeTab === "following") {
+    // Step 1: look up followee IDs
+    const followeeRows = currentDbUserId
+      ? await db
+          .select({ id: follows.followeeId })
+          .from(follows)
+          .where(eq(follows.followerId, currentDbUserId))
+      : [];
+
+    const followeeIds = followeeRows.map((r) => r.id);
+
+    // Step 2: fetch their worlds (or short-circuit to empty)
+    if (followeeIds.length === 0) {
+      rows = [];
+    } else {
+      const result = await db.query.worlds.findMany({
+        where: inArray(worlds.userId, followeeIds),
+        orderBy: [desc(worlds.createdAt)],
+        limit: 50,
+        columns: {
+          id: true,
+          title: true,
+          likesCount: true,
+          views: true,
+          createdAt: true,
+        },
+        with: {
+          user: {
+            columns: { username: true, avatarUrl: true },
+          },
+          media: {
+            where: (m, { or, eq: oreq }) =>
+              or(oreq(m.type, "thumbnail"), oreq(m.type, "video")),
+            limit: 2,
+            columns: { type: true, url: true },
+          },
+        },
+      });
+      rows = result as FeedWorld[];
+    }
+  } else {
+    // Recent tab — original behavior
+    const result = await db.query.worlds.findMany({
+      orderBy: [desc(worlds.createdAt)],
+      limit: 50,
+      columns: {
+        id: true,
+        title: true,
+        likesCount: true,
+        views: true,
+        createdAt: true,
       },
-      media: {
-        where: (m, { or, eq }) => or(eq(m.type, "thumbnail"), eq(m.type, "video")),
-        limit: 2,
-        columns: { type: true, url: true },
+      with: {
+        user: {
+          columns: { username: true, avatarUrl: true },
+        },
+        media: {
+          where: (m, { or, eq: oreq }) =>
+            or(oreq(m.type, "thumbnail"), oreq(m.type, "video")),
+          limit: 2,
+          columns: { type: true, url: true },
+        },
       },
-    },
-  });
+    });
+    rows = result as FeedWorld[];
+  }
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-8">
-      {/* visually hidden heading for screen readers / document outline */}
-      <h1 className="sr-only">Recent worlds</h1>
+      <h1 className="sr-only">
+        {activeTab === "following" ? "Following" : "Recent worlds"}
+      </h1>
 
+      {/* Tab bar */}
+      <div
+        className="mb-6 flex gap-1 border-b border-neutral-200 dark:border-neutral-800"
+        role="tablist"
+      >
+        <TabLink href="/" active={activeTab === "recent"} label="Recent" />
+        {clerkUserId && (
+          <TabLink
+            href="/?tab=following"
+            active={activeTab === "following"}
+            label="Following"
+          />
+        )}
+      </div>
+
+      {/* Grid or empty state */}
       {rows.length === 0 ? (
-        <EmptyState />
+        <ContextualEmptyState activeTab={activeTab} />
       ) : (
         <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {rows.map((world) => (
@@ -64,6 +158,40 @@ export default async function FeedPage() {
         </ul>
       )}
     </main>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// TabLink
+// ---------------------------------------------------------------------------
+function TabLink({
+  href,
+  active,
+  label,
+}: {
+  href: string;
+  active: boolean;
+  label: string;
+}) {
+  return (
+    <Link
+      href={href}
+      role="tab"
+      aria-selected={active}
+      className={`relative px-4 py-2 text-sm font-medium transition ${
+        active
+          ? "text-neutral-900 dark:text-neutral-100"
+          : "text-neutral-500 hover:text-neutral-800 dark:text-neutral-500 dark:hover:text-neutral-300"
+      }`}
+    >
+      {label}
+      {active && (
+        <span
+          aria-hidden
+          className="absolute inset-x-0 -bottom-px h-0.5 bg-neutral-900 dark:bg-neutral-100"
+        />
+      )}
+    </Link>
   );
 }
 
@@ -86,6 +214,7 @@ function FeedCard({ world }: { world: FeedWorld }) {
         videoUrl={videoUrl}
         alt={world.title}
         sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, (max-width: 1280px) 33vw, 25vw"
+        likesCount={world.likesCount}
       />
 
       {/* Card body */}
@@ -116,9 +245,26 @@ function FeedCard({ world }: { world: FeedWorld }) {
 }
 
 // ---------------------------------------------------------------------------
-// EmptyState — shown when FORGE has zero worlds
+// ContextualEmptyState — different messages for global-empty vs following-empty
 // ---------------------------------------------------------------------------
-function EmptyState() {
+function ContextualEmptyState({
+  activeTab,
+}: {
+  activeTab: "recent" | "following";
+}) {
+  if (activeTab === "following") {
+    return (
+      <div className="rounded-lg border border-dashed border-neutral-300 py-24 text-center dark:border-neutral-700">
+        <p className="text-lg font-medium text-neutral-700 dark:text-neutral-300">
+          Your following feed is empty
+        </p>
+        <p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400">
+          Worlds from creators you follow will show up here.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-lg border border-dashed border-neutral-300 py-24 text-center dark:border-neutral-700">
       <p className="text-lg font-medium text-neutral-700 dark:text-neutral-300">
