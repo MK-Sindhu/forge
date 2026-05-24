@@ -126,7 +126,7 @@ export default async function RootLayout({
             </nav>
           </header>
 
-          {children}
+          <div className="flex-1">{children}</div>
 
           <footer className="border-t border-neutral-200 bg-white py-6 dark:border-neutral-800 dark:bg-neutral-950">
             <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 text-sm text-neutral-500 dark:text-neutral-500">
