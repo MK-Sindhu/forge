@@ -11,14 +11,14 @@
 | | |
 |---|---|
 | Current phase | Phase 1 — Launch |
-| Current slice | Slice 7 — Discovery polish (planned, not started) |
-| In-flight | — (Slice 7 planning next) |
-| Tests | 311 across 16 test files |
-| Commits on main | 16 |
-| Latest commit | `de71b5a` — docs: restructure into role-specific reference docs + maintenance protocol |
+| Current slice | None — Slice 7 shipped; awaiting prod migrations + smoke + launch ops |
+| In-flight | Slice 7 prod migrations (0006–0009) + prod smoke for 7.1–7.5 |
+| Tests | 417 across 21 test files |
+| Commits on main | 21 (Slice 7 = 5 commits da31b12 → 7.5 head) |
+| Latest commit | (this commit — Slice 7.5 notifications + cross-cutting closeout) |
 | Branch state | `main` clean, in sync with `origin/main` |
 | Production | https://forge-black-eta.vercel.app |
-| DB | Neon Postgres — 9 tables, 5 migrations applied |
+| DB | Neon Postgres — 12 tables, 9 migrations applied (0008 + 0009 = view tracking + notifications) |
 | Storage | Cloudflare R2 — 2 buckets (forge-glb, forge-media) |
 
 ## 2. Phase Rollup
@@ -111,13 +111,21 @@ Legend: ✅ shipped + verified in prod · 🟢 shipped + deployed, not prod-smok
 
 ### Phase 1 — Launch
 
-#### Slice 7 — Discovery polish ⬜
+#### Slice 7 — Discovery polish 🟢
 
 | | |
 |---|---|
-| Status | Planned, not started |
+| Status | Shipped + deployed; prod migrations (0006–0009) + smoke test pending |
 | Goal | Search, tags, view counts, trending, notifications — the discovery layer FORGE needs to launch publicly |
-| Estimated tasks | 12–16 (similar shape to Slice 6) |
+| Schema additions | `tags`, `world_tags`, `world_views`, `notifications`, `worlds.search_vector` (FTS column, DB-managed) |
+| Migrations | `0006_slice7_tags.sql`, `0007_slice7_search.sql`, `0008_slice7_views.sql`, `0009_slice7_notifications.sql` |
+| New API routes | `POST /api/worlds/[id]/views`, `GET /api/notifications`, `POST /api/notifications/mark-read`, `GET /api/notifications/unread-count` |
+| Modified routes | `POST /api/worlds` (tags + new-world fanout notifications), `GET /api/worlds/[id]` (tags in response), `POST /api/worlds/[id]/likes` (notify), `POST /api/worlds/[id]/comments` (notify), `POST /api/users/[username]/follow` (notify) |
+| New pages | `/search`, `/notifications` |
+| New components | `tag-chip/TagChip`, `view-tracker/ViewTracker`, `notification-bell/NotificationBell`, `notifications/MarkAllReadOnView`, `notifications/NotificationList` |
+| New helper | `src/lib/notifications.ts` — `notify()` + `notifyMany()` post-commit best-effort |
+| Tests | 311 → 417 (+106 across the 5 sub-slices) |
+| Commits | da31b12 (7.1) · 8cc776c (7.2) · a788a77 (7.3) · 610b332 (7.4) · this (7.5) |
 
 **Sub-slices in order:**
 
@@ -127,7 +135,7 @@ Legend: ✅ shipped + verified in prod · 🟢 shipped + deployed, not prod-smok
 | 7.2 | Search — Postgres FTS (`tsvector` on title + description + tags) | 🟢 |
 | 7.3 | View counts — debounced, 1/user/world/day | 🟢 |
 | 7.4 | Trending — new feed tab, `likes × decay(age_in_hours)` | 🟢 |
-| 7.5 | Notifications — bell icon + `/notifications`. Events: like, comment, follow, new-world-from-followee | ⬜ |
+| 7.5 | Notifications — bell icon + `/notifications`. Events: like, comment, follow, new-world-from-followee | 🟢 |
 
 **Schema additions for Slice 7:**
 

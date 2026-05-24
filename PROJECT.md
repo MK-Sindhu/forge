@@ -4,7 +4,7 @@
 
 **Last updated:** 2026-05-24
 **Current phase:** Phase 1 — Launch
-**Current slice:** Slice 7 — Discovery polish (next up)
+**Current slice:** None — Slice 7 shipped 2026-05-24; awaiting prod migrations + smoke + launch ops
 **Builder:** Solo (student)
 **Build tool:** Claude Code
 
@@ -20,18 +20,18 @@ A social platform for publishing 3D worlds. Creators upload `.glb` files, viewer
 
 | Metric | Value |
 |---|---|
-| Slices shipped | 0, 1, 2, 3, 4, 5, 6 ✅ |
-| Slices remaining in Phase 1 | 7 (discovery polish) |
-| Tests passing | 311 across 16 test files |
-| Commits on main | 15 |
-| Latest commit | `127f5d7` — feat(slice-6): moderation |
+| Slices shipped | 0, 1, 2, 3, 4, 5, 6, 7 ✅ |
+| Slices remaining in Phase 1 | 0 — only launch ops remain before public launch |
+| Tests passing | 417 across 21 test files |
+| Commits on main | 21 (5 Slice 7 commits + this closeout) |
+| Latest commit | (this commit — Slice 7.5 notifications + cross-cutting closeout) |
 | Production URL | https://forge-black-eta.vercel.app |
 | GitHub | https://github.com/MK-Sindhu/forge |
-| DB | Neon Postgres — 9 tables, 5 migrations applied |
+| DB | Neon Postgres — 12 tables, 9 migrations applied (Slice 7 added tags, world_tags, world_views, notifications + worlds.search_vector tsvector column) |
 | Storage | Cloudflare R2 — 2 buckets (forge-glb, forge-media), public read |
 | Branch state | `main` clean, in sync with `origin/main` |
-| Slices verified in prod | 1, 3, 6 ✅ — 2, 4, 5 deployed but not yet smoke-tested |
-| In-flight | — (Slice 7 planning next) |
+| Slices verified in prod | 1, 3, 6 ✅ — 2, 4, 5, 7 deployed but not yet smoke-tested |
+| In-flight | Slice 7 prod migrations (0006–0009) + smoke test of the 5 sub-slices |
 
 ## 3. Stack (Locked)
 
@@ -60,8 +60,9 @@ Brief summary. Full detail in git history and previous handover.
 - **Slice 4 — Engagement.** Comments. Reposts. Share button (Web Share API → clipboard fallback). Following feed merges originals + reposts.
 - **Slice 5 — World updates timeline.** Text-only world updates on the world page, surfaced in Following feed as a third entry type.
 - **Slice 6 — Moderation.** Reports table. Admin reports queue. Suspensions. Admin role. Suspension guards on 12 write endpoints. Suspension-exempt safety valve for the report endpoint. DMCA stub page.
+- **Slice 7 — Discovery polish.** Tags (free-form, max 5 per world). Postgres FTS search (title + description + tag names). Per-user-per-day view tracking. Trending feed tab (likes × decay). In-app notifications (bell + `/notifications`) for like / comment / follow / new-world-from-followee.
 
-## 5. Current Slice — Slice 7 (Discovery Polish)
+## 5. Current Slice — Slice 7 (Discovery Polish) — SHIPPED 2026-05-24
 
 **Goal:** ship the discovery layer FORGE needs to launch publicly. Search, tags, view counts, trending, notifications.
 
@@ -125,6 +126,7 @@ Format: date — decision — reasoning.
 - **2026-05-23** — Native desktop app, Blender/Unity plugins, full real-time bidirectional sync: parked, architecturally enabled by the scene graph API.
 - **2026-05-23** — Folder-watcher CLI: in Phase 2, one-day time box, ships last so it can be cut cleanly if scope pressure hits.
 - **2026-05-23** — Tags free-form (not curated taxonomy). Trending uses simple `likes × decay`. Notifications scoped to like / comment / follow / new-world-from-followee.
+- **2026-05-24** — Slice 7 plan-time decisions: (a) view-count storage = `world_views` table with `UNIQUE(viewer_id, world_id, day)` + recount of `worlds.views` (matches likes recount-from-source pattern), NOT app-cache. (b) Notification timing = AFTER the action's transaction commits, in a try/catch best-effort call (notification failure must NEVER break a like/comment/follow/upload). (c) Anonymous views ignored — only signed-in views increment `worlds.views` (no IP-hash, no session cookie, predictable + no PII). (d) Migration strategy = one file per sub-slice (0006–0009) NOT one big 0006 — migrations are immutable once applied, per-sub-slice files enable incremental ship + smoke. (e) Tab order = Recent → Trending → Following (Trending public, Following auth-gated). (f) Search via Postgres FTS + GIN index on a DB-managed `worlds.search_vector` column NOT in the Drizzle schema — populated by 2 triggers (BEFORE on worlds for title/desc changes; AFTER on world_tags for tag-list changes).
 
 ## 8. Parking Lot (with Phase Tags)
 
@@ -236,7 +238,7 @@ Production dashboards:
 1. Memory files auto-load. Agents see persistent state.
 2. Read this doc (`PROJECT.md`) first.
 3. Read `ROADMAP.md` for strategic context.
-4. Say "plan slice 7" — agents enter plan mode against the locked design (Tags → Search → Views → Trending → Notifications) and execute task by task once approved.
+4. Slice 7 is shipped. Next: prod migrations (run `DATABASE_URL=... npm run db:migrate` against the Vercel/Neon prod URL), smoke-test all 5 sub-slices in production, then launch ops (Terms page, DMCA email, unsuspend button, onboarding pass, seed worlds, analytics). Public launch is unblocked once those are done.
 
 ---
 

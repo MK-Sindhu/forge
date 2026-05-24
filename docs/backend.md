@@ -25,7 +25,7 @@ src/
 │   ├── admin/            # Admin-only: reports queue, suspensions
 │   ├── comments/         # DELETE single comment
 │   ├── updates/          # PATCH / DELETE single update
-│   └── notifications/    # (Slice 7 — to be added)
+│   └── notifications/    # GET list, POST mark-read, GET unread-count (Slice 7.5)
 ├── db/
 │   └── schema.ts         # Drizzle schema — single source of truth for tables
 └── lib/
@@ -34,7 +34,7 @@ src/
     └── format-relative.ts # "5m ago" timestamps (used by frontend too)
 ```
 
-## Database Schema (Current — 10 Tables)
+## Database Schema (Current — 11 Tables)
 
 Authoritative source: `src/db/schema.ts`. This section is a reference summary.
 
@@ -86,6 +86,21 @@ Slice 7.3. Per-user-per-day view deduplication table. Composite PK on `(viewer_i
 Anonymous views are intentionally ignored (locked decision, PROJECT.md §7). Only signed-in, active users increment `worlds.views`.
 
 No Drizzle relations are defined — this table is internal and never queried via `db.query` relational helpers. The recount-from-source pattern (same as likes) writes to `worlds.views` in the same transaction.
+
+### `notifications`
+Slice 7.5. In-app notification feed. One row per notification event.
+
+Key columns: `id` (uuid PK), `user_id` (FK → users, CASCADE), `type` (text with CHECK), `actor_id` (nullable FK → users, CASCADE), `world_id` (nullable FK → worlds, CASCADE), `comment_id` (nullable FK → comments, CASCADE), `created_at`, `read_at` (null until marked read).
+
+`type` CHECK constraint: `IN ('like', 'comment', 'follow', 'new_world')`.
+
+Indexes:
+- `notifications_user_id_created_at_idx` — `(user_id, created_at DESC)` for the feed query
+- `notifications_user_id_unread_idx` — PARTIAL `(user_id) WHERE read_at IS NULL` for the cheap unread-badge count
+
+Drizzle relations: `recipient` (→ users, `relationName: "notificationRecipient"`), `actor` (→ users, `relationName: "notificationActor"`), `world` (→ worlds), `comment` (→ comments). Back-relations on `usersRelations`: `receivedNotifications` and `actedNotifications`.
+
+Self-notifications (userId === actorId) are suppressed in the `notify()` helper — no DB CHECK for this.
 
 ### `worlds.search_vector` (DB-only, not in Drizzle schema)
 Slice 7.2. `tsvector` column added directly to the `worlds` table via migration `0007_slice7_search.sql`. **This column is intentionally absent from `src/db/schema.ts`.** It is Postgres-managed — triggers populate and maintain it automatically. Application code never writes to it directly. Drizzle queries against `worlds` simply don't see this column (no TS errors, no runtime errors). Queries that need to search use raw `sql` template literals: `sql\`search_vector @@ websearch_to_tsquery('english', ${q})\``.
@@ -158,13 +173,13 @@ Verified by walking `src/app/api/` (15 `route.ts` files as of Slice 6). `/api/fe
 |---|---|---|---|---|
 | GET | `/api/me` | required | Returns (or creates) the DB user row for the signed-in Clerk user | 0 |
 | POST | `/api/uploads/sign` | required | Returns presigned R2 PUT URL | 1 |
-| POST | `/api/worlds` | required, active | Create a world (HEADs R2 keys, transactional insert); accepts optional `tags` array (max 5, normalized + validated); inserts `tags` + `world_tags` in the same transaction | 1, 7.1 |
+| POST | `/api/worlds` | required, active | Create a world (HEADs R2 keys, transactional insert); accepts optional `tags` array (max 5, normalized + validated); inserts `tags` + `world_tags` in the same transaction; fans out `new_world` notifications to followers post-commit | 1, 7.1, 7.5 |
 | GET | `/api/worlds/[id]` | public | Joins media + author + tags; includes `isLikedByCurrentUser`, `isRepostedByCurrentUser`; response includes `tags: { name: string }[]` | 1, 7.1 |
-| POST | `/api/worlds/[id]/likes` | required, active | Like (idempotent, transactional recount) | 3 |
+| POST | `/api/worlds/[id]/likes` | required, active | Like (idempotent, transactional recount); notifies world owner post-commit | 3, 7.5 |
 | DELETE | `/api/worlds/[id]/likes` | required, active | Unlike | 3 |
-| POST | `/api/users/[username]/follow` | required, active | Follow (idempotent, rejects self-follow) | 3 |
+| POST | `/api/users/[username]/follow` | required, active | Follow (idempotent, rejects self-follow); notifies followee post-commit | 3, 7.5 |
 | DELETE | `/api/users/[username]/follow` | required, active | Unfollow | 3 |
-| POST | `/api/worlds/[id]/comments` | required, active | Add comment | 4 |
+| POST | `/api/worlds/[id]/comments` | required, active | Add comment; notifies world owner post-commit | 4, 7.5 |
 | GET | `/api/worlds/[id]/comments` | public | Paginated (cursor, ISO 8601 `createdAt`) | 4 |
 | DELETE | `/api/comments/[id]` | required, author OR world-owner | Delete comment | 4 |
 | POST | `/api/worlds/[id]/repost` | required, active | Repost (idempotent) | 4 |
@@ -179,6 +194,9 @@ Verified by walking `src/app/api/` (15 `route.ts` files as of Slice 6). `/api/fe
 | PATCH | `/api/admin/reports/[id]` | admin | Resolve / dismiss | 6 |
 | POST | `/api/admin/users/[id]/suspend` | admin | Suspend (blocks self-action) | 6 |
 | DELETE | `/api/admin/users/[id]/suspend` | admin | Unsuspend | 6 |
+| GET | `/api/notifications` | required, active | Cursor-paginated notification feed; joins actor, world, comment; newest first | 7.5 |
+| POST | `/api/notifications/mark-read` | required, active | Mark specific ids or all unread as read; scoped to own notifications only | 7.5 |
+| GET | `/api/notifications/unread-count` | required, active | Cheap unread badge count via partial index | 7.5 |
 
 ## Phase 2 Prep (Scene Graph API)
 
@@ -284,6 +302,103 @@ Used in `POST /api/worlds` to sanitize tag input before DB insertion:
    - `INSERT INTO tags (name) VALUES (...) ON CONFLICT (name) DO NOTHING` (bulk)
    - Re-select any tag rows whose IDs weren't returned via `SELECT id, name FROM tags WHERE name = ANY($1)`
    - Bulk `INSERT INTO world_tags` (idempotent via `onConflictDoNothing`)
+
+## Best-Effort Post-Commit Notification Pattern (Slice 7.5)
+
+**Locked decision (PROJECT.md §7):** Notification failures must NEVER break the parent action (like, comment, follow, world create). This is enforced structurally.
+
+### The `notify()` / `notifyMany()` helpers (`src/lib/notifications.ts`)
+
+```ts
+// Single notification — post-commit, best-effort
+await notify({
+  userId: worldOwner.id,       // recipient
+  type: "like",
+  actorId: dbUser.id,          // who did the action
+  worldId: world.id,           // optional context
+  commentId: null,             // optional context
+});
+
+// Fan-out — e.g., new world → all followers
+await notifyMany([
+  { userId: followerId, type: "new_world", actorId: authorId, worldId },
+  // ...
+]);
+```
+
+Signatures:
+- `notify(input: NotifyInput): Promise<void>` — inserts a single notification row; catches and swallows all DB errors
+- `notifyMany(inputs: NotifyInput[]): Promise<void>` — bulk insert; catches and swallows all DB errors
+
+`NotifyInput`: `{ userId: string; type: "like"|"comment"|"follow"|"new_world"; actorId?: string|null; worldId?: string|null; commentId?: string|null; }`
+
+### Self-notification suppression
+
+Both helpers check `input.actorId && input.userId === input.actorId` and return early (no DB insert). This is the single enforcement point.
+
+### Call-site pattern
+
+```ts
+// Inside route handler, AFTER the action's transaction (or insert) commits
+// and BEFORE the return statement:
+try {
+  // Optional: look up owner/recipient if not already in scope
+  const [worldRow] = await db
+    .select({ ownerId: worlds.userId })
+    .from(worlds)
+    .where(eq(worlds.id, worldId))
+    .limit(1);
+  if (worldRow) {
+    await notify({
+      userId: worldRow.ownerId,
+      type: "like",             // one of: "like" | "comment" | "follow" | "new_world"
+      actorId: dbUser.id,
+      worldId,
+      // commentId: created.id, // include for "comment" type
+    });
+  }
+} catch (err) {
+  // Double safety: notify() already swallows DB errors internally, but this
+  // outer catch protects the HTTP response from any unforeseen synchronous throw.
+  console.error("[POST likes] notify call wrapper failed:", err);
+}
+return NextResponse.json({ ... });
+```
+
+For fan-out (world create → all followers):
+
+```ts
+try {
+  const followerRows = await db
+    .select({ followerId: follows.followerId })
+    .from(follows)
+    .where(eq(follows.followeeId, dbUser.id));
+  if (followerRows.length > 0) {
+    await notifyMany(
+      followerRows.map((r) => ({
+        userId: r.followerId,
+        type: "new_world" as const,
+        actorId: dbUser.id,
+        worldId,
+      }))
+    );
+  }
+} catch (err) {
+  console.error("[POST worlds] new-world fanout notify failed:", err);
+}
+```
+
+The outer `try/catch` is the second defensive layer — `notify()`/`notifyMany()` already swallows errors, but this protects against any unforeseen synchronous throw from caller-side code (e.g., the owner-lookup query itself).
+
+### Integration points (shipped in Slice 7.5)
+
+These routes call `notify()` / `notifyMany()` post-commit:
+- `POST /api/worlds/[id]/likes` → looks up `worlds.userId`, calls `notify({ type: "like", userId: worldOwner.id, actorId: dbUser.id, worldId })`
+- `POST /api/worlds/[id]/comments` → looks up `worlds.userId`, calls `notify({ type: "comment", userId: worldOwner.id, actorId: dbUser.id, worldId, commentId: created.id })`
+- `POST /api/users/[username]/follow` → calls `notify({ type: "follow", userId: followeeId, actorId: followerId })`
+- `POST /api/worlds` → queries `follows WHERE followee_id = dbUser.id`, calls `notifyMany([...followers])` with `type: "new_world"`
+
+All four integrations follow the double-defense call-site shape (outer `try/catch` + `notify()`'s internal `try/catch`).
 
 ## Known Gotchas
 

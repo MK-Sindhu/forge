@@ -3,9 +3,10 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
 import { ClerkProvider, Show, UserButton } from "@clerk/nextjs";
 import { auth } from "@clerk/nextjs/server";
-import { eq } from "drizzle-orm";
+import { eq, count, and, isNull } from "drizzle-orm";
 import { db } from "@/db";
-import { users } from "@/db/schema";
+import { users, notifications } from "@/db/schema";
+import { NotificationBell } from "@/components/notification-bell/NotificationBell";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -28,17 +29,25 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // Look up isAdmin for the conditional nav link.
-  // Two cheap queries (auth + DB row) — acceptable per-request cost.
+  // Look up isAdmin + unread notification count for the nav.
+  // One DB query per signed-in request — acceptable per-request cost.
   const { userId } = await auth();
   let isAdmin = false;
+  let unreadNotifs = 0;
   if (userId) {
     const [row] = await db
-      .select({ isAdmin: users.isAdmin })
+      .select({ id: users.id, isAdmin: users.isAdmin })
       .from(users)
       .where(eq(users.clerkId, userId))
       .limit(1);
-    isAdmin = !!row?.isAdmin;
+    if (row) {
+      isAdmin = !!row.isAdmin;
+      const [countRow] = await db
+        .select({ c: count() })
+        .from(notifications)
+        .where(and(eq(notifications.userId, row.id), isNull(notifications.readAt)));
+      unreadNotifs = Number(countRow?.c ?? 0);
+    }
   }
 
   return (
@@ -88,6 +97,7 @@ export default async function RootLayout({
                       Admin
                     </Link>
                   )}
+                  <NotificationBell initialUnreadCount={unreadNotifs} />
                   <Link
                     href="/upload"
                     className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 dark:focus-visible:ring-neutral-100"

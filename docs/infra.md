@@ -85,10 +85,9 @@ Current migrations:
 0005_slice6_moderation.sql
 0006_slice7_tags.sql
 0007_slice7_search.sql   ← adds worlds.search_vector tsvector + trigger functions + GIN index
-0008_slice7_views.sql    ← adds world_views table (viewer_id, world_id, day composite PK + FK constraints + world_views_world_id_idx)
+0008_slice7_views.sql          ← adds world_views table (viewer_id, world_id, day composite PK + FK constraints + world_views_world_id_idx)
+0009_slice7_notifications.sql  ← adds notifications table (user_id, type CHECK, actor/world/comment nullable FKs, read_at) + composite index + partial index WHERE read_at IS NULL
 ```
-
-Next: `0009_slice7_notifications.sql`.
 
 **Note on `0007_slice7_search.sql`:** This migration defines three Postgres functions (`worlds_search_vector_build`, `worlds_search_vector_trigger_fn`, `world_tags_search_vector_trigger_fn`) and two triggers (`worlds_search_vector_trigger` BEFORE on `worlds`, `world_tags_search_vector_trigger` AFTER on `world_tags`). When applying to production, all three functions and both triggers must land cleanly — verify with `\df` and `\dT` in psql or a `SELECT proname FROM pg_proc WHERE proname LIKE 'worlds_%';` query after the migration runs.
 
@@ -153,7 +152,7 @@ Run anytime to verify infra state:
 ```bash
 npm run build            # Clean build
 npm test                 # 328 tests pass
-npm run db:smoke         # All 10 tables present, current row counts (scripts/smoke.ts)
+npm run db:smoke         # All 11 tables present, current row counts (scripts/smoke.ts)
 git status               # Clean tree
 git log --oneline -5     # Recent commits
 ```

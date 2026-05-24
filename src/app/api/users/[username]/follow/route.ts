@@ -14,6 +14,7 @@ import { eq, and } from "drizzle-orm";
 import { db } from "@/db";
 import { users, follows } from "@/db/schema";
 import { requireActiveDbUser } from "@/lib/users";
+import { notify } from "@/lib/notifications";
 
 // ---------------------------------------------------------------------------
 // Prelude types
@@ -101,6 +102,17 @@ export async function POST(
     .insert(follows)
     .values({ followerId: p.followerId, followeeId: p.followeeId })
     .onConflictDoNothing();
+
+  // Best-effort: notify the followee after the follow is recorded.
+  try {
+    await notify({
+      userId: p.followeeId,
+      type: "follow",
+      actorId: p.followerId,
+    });
+  } catch (err) {
+    console.error("[POST follow] notify call wrapper failed:", err);
+  }
 
   return NextResponse.json({ following: true });
 }

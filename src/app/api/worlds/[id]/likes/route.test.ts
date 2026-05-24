@@ -20,6 +20,10 @@ const {
   mockTxUpdate,
   // Controls what tx.select(...)...where() returns for the recount query.
   mockTxSelectCount,
+  // External boundary: @/lib/notifications — mocked so tests can assert call
+  // shape without running the real DB insert. Mocked at the module level rather
+  // than the db level so tests see the function call directly.
+  mockNotify,
 } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   // External boundary: currentUser() fetches the full Clerk user object over
@@ -28,7 +32,9 @@ const {
   // External boundary: requireActiveDbUser hits the DB; mocked so tests can
   // inject a pre-built user row or simulate DB errors without a real connection.
   mockRequireActiveDbUser: vi.fn(),
-  // Inner mock for db.select(...)...limit(n) — the world-existence check.
+  // Inner mock for db.select(...)...limit(n) — the world-existence check AND
+  // the post-commit owner lookup (both use the same db.select chain; tests use
+  // mockResolvedValueOnce to control successive calls independently).
   mockDbSelectLimit: vi.fn(),
   // Inner mock for dbPool.transaction() — receives the async callback and
   // decides whether to run it (happy path) or throw (error path).
@@ -39,6 +45,11 @@ const {
   mockTxUpdate: vi.fn(),
   // Controls what the recount SELECT returns inside the transaction.
   mockTxSelectCount: vi.fn(),
+  // Mock for notify() — the notifications helper is an external DB boundary;
+  // mocking at this seam lets tests assert the call shape without a real
+  // notifications table or DB insert. The helper's internal try/catch and
+  // self-notification suppression are tested separately in notifications.test.ts.
+  mockNotify: vi.fn(),
 }));
 
 // Mock @clerk/nextjs/server — real calls require a live Clerk environment
@@ -53,6 +64,15 @@ vi.mock("@clerk/nextjs/server", () => ({
 // here keeps tests hermetic without reaching Neon.
 vi.mock("@/lib/users", () => ({
   requireActiveDbUser: mockRequireActiveDbUser,
+}));
+
+// Mock @/lib/notifications — mocks the entire notifications helper module so
+// tests can assert notify() is called with the right arguments without a real
+// DB insert or a live notifications table. The helper's own internal logic
+// (self-notification suppression, DB error swallowing) is tested separately
+// in src/lib/notifications.test.ts.
+vi.mock("@/lib/notifications", () => ({
+  notify: mockNotify,
 }));
 
 // Mock @/db — real DB connections require DATABASE_URL + a running Neon
@@ -90,6 +110,8 @@ const VALID_WORLD_UUID = "550e8400-e29b-41d4-a716-446655440000";
 const INVALID_UUID = "not-a-uuid";
 const CLERK_USER_ID = "clerk_user_abc123";
 const DB_USER_ID = "db-uuid-alice-001";
+// DB id for a different user who owns the world (the notification recipient).
+const OWNER_DB_ID = "db-uuid-owner-002";
 
 const DB_USER = {
   id: DB_USER_ID,
@@ -172,6 +194,15 @@ function makeFakeTx(countResult: number) {
 
 // Sets up the standard "happy path" mocks so individual tests only need to
 // override the one mock they care about.
+//
+// Note on db.select call ordering for POST:
+//   call 1: world-existence check (before transaction) → returns [{ id }]
+//   call 2: owner lookup          (after transaction)  → returns [{ ownerId }]
+//
+// The default sets both calls to return the world-existence result so existing
+// tests that don't care about the owner lookup continue to work. Tests that
+// assert on notify() must override mockDbSelectLimit with mockResolvedValueOnce
+// pairs (or use setupHappyPathWithOwner()).
 function setupHappyPath(likeCountAfterOp = 1) {
   mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
   mockCurrentUser.mockResolvedValue({
@@ -181,13 +212,29 @@ function setupHappyPath(likeCountAfterOp = 1) {
     imageUrl: null,
   });
   mockRequireActiveDbUser.mockResolvedValue(DB_USER);
-  // World exists
+  // Default: both select calls return the world-existence shape.
+  // The owner lookup extracts { ownerId } but receives { id } here — that is
+  // fine for tests that only care about the response shape, not the notify call.
   mockDbSelectLimit.mockResolvedValue([{ id: VALID_WORLD_UUID }]);
   // Transaction runs the callback with the fake tx
   mockTransaction.mockImplementation(
     async (callback: (tx: unknown) => Promise<unknown>) =>
       callback(makeFakeTx(likeCountAfterOp))
   );
+  // Default: notify is a no-op so existing tests that don't assert on it pass.
+  mockNotify.mockResolvedValue(undefined);
+}
+
+// Extended happy-path setup that also configures the owner-lookup select call
+// so notify() tests can assert on the correct ownerId.
+function setupHappyPathWithOwner(likeCountAfterOp = 1, ownerId = OWNER_DB_ID) {
+  setupHappyPath(likeCountAfterOp);
+  // Override with per-call values:
+  //   call 1 (world-existence): returns [{ id }]
+  //   call 2 (owner lookup):    returns [{ ownerId }]
+  mockDbSelectLimit
+    .mockResolvedValueOnce([{ id: VALID_WORLD_UUID }])
+    .mockResolvedValueOnce([{ ownerId }]);
 }
 
 // ---------------------------------------------------------------------------
@@ -516,5 +563,79 @@ describe("POST/DELETE /api/worlds/[id]/likes — idempotency", () => {
     const body = await res.json();
     expect(body.liked).toBe(false);
     expect(body.likesCount).toBe(5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Block F — notify() integration (sub-slice 7.5)
+//
+// These tests assert that the route calls notify() with the correct arguments
+// after the like transaction commits. notify() is mocked at the module level
+// (@/lib/notifications) so tests see the raw call shape; the helper's own
+// self-notification suppression and DB error swallowing are tested separately
+// in src/lib/notifications.test.ts.
+// ---------------------------------------------------------------------------
+
+describe("POST /api/worlds/[id]/likes — notify integration", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it("calls notify with { type: 'like', userId: ownerId, actorId: dbUserId, worldId } after a successful like", async () => {
+    setupHappyPathWithOwner(1, OWNER_DB_ID);
+
+    await callPost(VALID_WORLD_UUID);
+
+    expect(mockNotify).toHaveBeenCalledOnce();
+    expect(mockNotify).toHaveBeenCalledWith({
+      type: "like",
+      userId: OWNER_DB_ID,
+      actorId: DB_USER_ID,
+      worldId: VALID_WORLD_UUID,
+    });
+  });
+
+  it("calls notify with actorId === userId when user likes their own world (self-actor suppression happens inside the helper, not the route)", async () => {
+    // The route calls notify() unconditionally after fetching the owner.
+    // When the liker IS the owner, notify() is still called — but the helper
+    // suppresses the notification internally (tested in notifications.test.ts).
+    // This test confirms the route doesn't short-circuit before calling notify().
+    setupHappyPath(1);
+    // Owner lookup returns the same DB_USER_ID as the liker.
+    mockDbSelectLimit
+      .mockResolvedValueOnce([{ id: VALID_WORLD_UUID }]) // world-existence check
+      .mockResolvedValueOnce([{ ownerId: DB_USER_ID }]);  // owner === liker
+
+    await callPost(VALID_WORLD_UUID);
+
+    expect(mockNotify).toHaveBeenCalledOnce();
+    expect(mockNotify).toHaveBeenCalledWith(
+      expect.objectContaining({ actorId: DB_USER_ID, userId: DB_USER_ID })
+    );
+    // (The helper would skip inserting a row for this case, but that logic is
+    // in notifications.ts — out of scope for this route test.)
+  });
+
+  it("still returns 200 with { liked: true, likesCount } when notify throws", async () => {
+    // Locked decision (PROJECT.md §7): notification failure must NEVER break
+    // the parent action. The route wraps the notify call in try/catch.
+    setupHappyPathWithOwner(1, OWNER_DB_ID);
+    mockNotify.mockRejectedValue(new Error("notify DB exploded"));
+
+    const res = await callPost(VALID_WORLD_UUID);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ liked: true, likesCount: 1 });
+  });
+});
+
+describe("DELETE /api/worlds/[id]/likes — notify NOT called on unlike", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it("does NOT call notify when a user unlikes a world (un-liking is a silent action)", async () => {
+    setupHappyPath(0);
+
+    await callDelete(VALID_WORLD_UUID);
+
+    expect(mockNotify).not.toHaveBeenCalled();
   });
 });

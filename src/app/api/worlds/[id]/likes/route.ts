@@ -18,6 +18,7 @@ import { z } from "zod";
 import { db, dbPool } from "@/db";
 import { worlds, likes } from "@/db/schema";
 import { requireActiveDbUser, type DbUser } from "@/lib/users";
+import { notify } from "@/lib/notifications";
 import type { PgTransaction } from "drizzle-orm/pg-core";
 import type { NeonQueryResultHKT } from "drizzle-orm/neon-serverless";
 
@@ -129,6 +130,26 @@ export async function POST(
 
       return recountAndUpdate(tx, worldId);
     });
+
+    // Best-effort: notify world owner after the transaction commits.
+    try {
+      const [worldRow] = await db
+        .select({ ownerId: worlds.userId })
+        .from(worlds)
+        .where(eq(worlds.id, worldId))
+        .limit(1);
+      if (worldRow) {
+        await notify({
+          userId: worldRow.ownerId,
+          type: "like",
+          actorId: dbUser.id,
+          worldId,
+        });
+      }
+    } catch (err) {
+      // Double safety; notify() already swallows internally but never trust
+      console.error("[POST likes] notify call wrapper failed:", err);
+    }
 
     return NextResponse.json({ liked: true, likesCount });
   } catch (err) {

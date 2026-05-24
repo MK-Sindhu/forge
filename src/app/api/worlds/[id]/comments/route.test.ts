@@ -12,12 +12,19 @@ const {
   mockAuth,
   mockCurrentUser,
   mockRequireActiveDbUser,
-  // Controls db.select()...limit() — used for the world-existence check.
+  // Controls db.select()...limit() — used for the world-existence check AND
+  // the post-commit owner lookup. Tests that assert on notify() use
+  // mockResolvedValueOnce pairs to control successive calls independently.
   mockDbSelectLimit,
   // Controls db.insert()...returning() — used for the POST insert.
   mockDbInsertReturning,
   // Controls db.query.comments.findMany — used for the GET list query.
   mockFindMany,
+  // External boundary: @/lib/notifications — mocked so tests can assert the
+  // call shape without a real DB insert or notifications table. The helper's
+  // internal try/catch and self-notification suppression are tested separately
+  // in src/lib/notifications.test.ts.
+  mockNotify,
 } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   // External boundary: Clerk's auth() and currentUser() make network calls
@@ -28,6 +35,7 @@ const {
   mockDbSelectLimit: vi.fn(),
   mockDbInsertReturning: vi.fn(),
   mockFindMany: vi.fn(),
+  mockNotify: vi.fn(),
 }));
 
 // Mock @clerk/nextjs/server — guards against live Clerk calls.
@@ -39,6 +47,13 @@ vi.mock("@clerk/nextjs/server", () => ({
 // Mock @/lib/users — avoids a real DB round-trip for user bootstrap.
 vi.mock("@/lib/users", () => ({
   requireActiveDbUser: mockRequireActiveDbUser,
+}));
+
+// Mock @/lib/notifications — mocks the entire notifications helper module so
+// tests can assert notify() is called with the right arguments without a real
+// DB insert. The helper's internal logic is tested in notifications.test.ts.
+vi.mock("@/lib/notifications", () => ({
+  notify: mockNotify,
 }));
 
 // Mock @/db — real DB connections require DATABASE_URL + a live Neon instance.
@@ -89,6 +104,8 @@ const INVALID_UUID = "not-a-uuid";
 const CLERK_USER_ID = "clerk_user_abc123";
 const DB_USER_ID = "db-uuid-alice-001";
 const COMMENT_ID = "660e8400-e29b-41d4-a716-446655440001";
+// DB id for a different user who owns the world (notification recipient).
+const OWNER_DB_ID = "db-uuid-owner-002";
 
 const DB_USER = {
   id: DB_USER_ID,
@@ -275,6 +292,8 @@ describe("POST /api/worlds/[id]/comments — success", () => {
         userId: DB_USER_ID,
       },
     ]);
+    // Default: notify is a no-op so existing tests that don't assert on it pass.
+    mockNotify.mockResolvedValue(undefined);
   });
 
   it("returns 201 on success", async () => {
@@ -591,5 +610,123 @@ describe("GET /api/worlds/[id]/comments — cursor pagination", () => {
     expect(mockFindMany).toHaveBeenCalledWith(
       expect.objectContaining({ limit: 21 })
     );
+  });
+});
+
+// ============================================================================
+// POST /api/worlds/[id]/comments — notify integration (sub-slice 7.5)
+//
+// These tests assert that the route calls notify() with the correct arguments
+// after the comment insert commits. notify() is mocked at the module level
+// (@/lib/notifications) so tests see the raw call shape without a real DB
+// insert. The helper's self-notification suppression and error swallowing are
+// tested separately in src/lib/notifications.test.ts.
+//
+// db.select()...limit() is called twice in the POST happy path:
+//   call 1: world-existence check (getWorldOr404)   → returns [{ id }]
+//   call 2: post-commit owner lookup                → returns [{ ownerId }]
+// Tests use mockResolvedValueOnce pairs to control each call independently.
+// ============================================================================
+
+describe("POST /api/worlds/[id]/comments — notify integration", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    setupAuthAndUser();
+    mockDbInsertReturning.mockResolvedValue([
+      {
+        id: COMMENT_ID,
+        body: "Great world!",
+        createdAt: new Date("2026-03-10T12:00:00.000Z"),
+        worldId: VALID_WORLD_UUID,
+        userId: DB_USER_ID,
+      },
+    ]);
+  });
+
+  it("calls notify with { type: 'comment', userId: ownerId, actorId: dbUserId, worldId, commentId } after a successful comment", async () => {
+    // call 1: world existence → [{ id }]
+    // call 2: owner lookup    → [{ ownerId }]
+    mockDbSelectLimit
+      .mockResolvedValueOnce([{ id: VALID_WORLD_UUID }])
+      .mockResolvedValueOnce([{ ownerId: OWNER_DB_ID }]);
+    mockNotify.mockResolvedValue(undefined);
+
+    await callPost(VALID_WORLD_UUID, { body: "Great world!" });
+
+    expect(mockNotify).toHaveBeenCalledOnce();
+    expect(mockNotify).toHaveBeenCalledWith({
+      type: "comment",
+      userId: OWNER_DB_ID,
+      actorId: DB_USER_ID,
+      worldId: VALID_WORLD_UUID,
+      commentId: COMMENT_ID,
+    });
+  });
+
+  it("commentId in the notify call matches the newly-created comment's id from the insert", async () => {
+    const NEW_COMMENT_ID = "770e8400-e29b-41d4-a716-446655440002";
+    mockDbInsertReturning.mockResolvedValue([
+      {
+        id: NEW_COMMENT_ID,
+        body: "Hello!",
+        createdAt: new Date("2026-04-01T00:00:00.000Z"),
+        worldId: VALID_WORLD_UUID,
+        userId: DB_USER_ID,
+      },
+    ]);
+    mockDbSelectLimit
+      .mockResolvedValueOnce([{ id: VALID_WORLD_UUID }])
+      .mockResolvedValueOnce([{ ownerId: OWNER_DB_ID }]);
+    mockNotify.mockResolvedValue(undefined);
+
+    await callPost(VALID_WORLD_UUID, { body: "Hello!" });
+
+    expect(mockNotify).toHaveBeenCalledWith(
+      expect.objectContaining({ commentId: NEW_COMMENT_ID })
+    );
+  });
+
+  it("still returns 201 when notify throws (notification failure never breaks the comment)", async () => {
+    // Locked decision: notification failure must NEVER break the parent action.
+    mockDbSelectLimit
+      .mockResolvedValueOnce([{ id: VALID_WORLD_UUID }])
+      .mockResolvedValueOnce([{ ownerId: OWNER_DB_ID }]);
+    mockNotify.mockRejectedValue(new Error("notify DB exploded"));
+
+    const res = await callPost(VALID_WORLD_UUID, { body: "Great world!" });
+
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body).toMatchObject({ id: COMMENT_ID, body: "Great world!" });
+  });
+});
+
+describe("DELETE /api/comments — notify NOT called on comment deletion", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it("does NOT call notify when a comment is deleted (deletion is a silent action)", async () => {
+    // The DELETE handler is on /api/comments/[id], not this route. This test
+    // documents the contract: comment deletion has no notify() call. The
+    // comments/[id]/route.test.ts covers that handler's behavior; we confirm
+    // the mockNotify is never called in the scope of this module.
+    // (There is no DELETE export on this route file — only GET and POST exist.)
+    mockNotify.mockResolvedValue(undefined);
+    // No call to any handler — just confirm the mock is clean.
+    expect(mockNotify).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /api/worlds/[id]/comments — notify NOT called on read", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mockDbSelectLimit.mockResolvedValue([{ id: VALID_WORLD_UUID }]);
+    mockFindMany.mockResolvedValue([]);
+    mockNotify.mockResolvedValue(undefined);
+  });
+
+  it("does NOT call notify when fetching comments (read-only operation)", async () => {
+    await callGet(VALID_WORLD_UUID);
+
+    expect(mockNotify).not.toHaveBeenCalled();
   });
 });

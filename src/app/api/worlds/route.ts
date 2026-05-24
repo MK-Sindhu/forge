@@ -29,10 +29,11 @@ import { NextResponse } from "next/server";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
-import { dbPool } from "@/db";
-import { worlds, worldMedia, users, tags, worldTags } from "@/db/schema";
+import { db, dbPool } from "@/db";
+import { worlds, worldMedia, users, tags, worldTags, follows } from "@/db/schema";
 import { headObject, publicUrlFor } from "@/lib/r2";
 import { requireActiveDbUser } from "@/lib/users";
+import { notifyMany } from "@/lib/notifications";
 
 // ---------------------------------------------------------------------------
 // Request schema
@@ -277,6 +278,26 @@ export async function POST(req: Request) {
     }
   });
 
-  // --- 9. Respond 201 Created ------------------------------------------------
+  // --- 9. Fan out new-world notifications to all followers (best-effort) ------
+  try {
+    const followerRows = await db
+      .select({ followerId: follows.followerId })
+      .from(follows)
+      .where(eq(follows.followeeId, dbUser.id));
+    if (followerRows.length > 0) {
+      await notifyMany(
+        followerRows.map((r) => ({
+          userId: r.followerId,
+          type: "new_world" as const,
+          actorId: dbUser.id,
+          worldId,
+        }))
+      );
+    }
+  } catch (err) {
+    console.error("[POST worlds] new-world fanout notify failed:", err);
+  }
+
+  // --- 10. Respond 201 Created -----------------------------------------------
   return NextResponse.json({ worldId, url: `/world/${worldId}` }, { status: 201 });
 }

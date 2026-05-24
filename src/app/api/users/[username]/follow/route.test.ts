@@ -15,6 +15,11 @@ const {
   mockDbSelectLimit,
   mockDbInsertValues,
   mockDbDeleteWhere,
+  // External boundary: @/lib/notifications — mocked so tests can assert the
+  // notify() call shape without a real DB insert. The helper's internal logic
+  // (self-notification suppression, DB error swallowing) is tested separately
+  // in src/lib/notifications.test.ts.
+  mockNotify,
 } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   // External boundary: currentUser() fetches the full Clerk user object over
@@ -29,6 +34,7 @@ const {
   mockDbInsertValues: vi.fn(),
   // Spy on the delete → where chain.
   mockDbDeleteWhere: vi.fn(),
+  mockNotify: vi.fn(),
 }));
 
 // Mock @clerk/nextjs/server — real calls require a live Clerk environment
@@ -42,6 +48,13 @@ vi.mock("@clerk/nextjs/server", () => ({
 // This module crosses the DB boundary; mocking keeps tests hermetic.
 vi.mock("@/lib/users", () => ({
   requireActiveDbUser: mockRequireActiveDbUser,
+}));
+
+// Mock @/lib/notifications — mocks the entire notifications helper module so
+// tests can assert notify() is called with the right arguments without a real
+// DB insert or notifications table.
+vi.mock("@/lib/notifications", () => ({
+  notify: mockNotify,
 }));
 
 // Mock @/db — real DB connections require DATABASE_URL + a running Neon
@@ -161,6 +174,8 @@ function setupHappyPath() {
   mockRequireActiveDbUser.mockResolvedValue(FOLLOWER_DB_ROW);
   // Followee found by username lookup
   mockDbSelectLimit.mockResolvedValue([FOLLOWEE_DB_ROW]);
+  // Default: notify is a no-op so existing tests that don't assert on it pass.
+  mockNotify.mockResolvedValue(undefined);
 }
 
 // ---------------------------------------------------------------------------
@@ -415,5 +430,56 @@ describe("follow idempotency", () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ following: false });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Block E — notify() integration (sub-slice 7.5)
+//
+// These tests assert that the POST follow route calls notify() with the
+// correct arguments after the follow insert. The route does NOT require a
+// second DB select for the followee — followeeId is already available from
+// the prelude. notify() is mocked at the module level so tests see the raw
+// call shape without a real DB insert.
+// ---------------------------------------------------------------------------
+
+describe("POST /api/users/[username]/follow — notify integration", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it("calls notify with { type: 'follow', userId: followeeId, actorId: followerId } after a successful follow", async () => {
+    setupHappyPath();
+
+    await callPost(FOLLOWEE_USERNAME);
+
+    expect(mockNotify).toHaveBeenCalledOnce();
+    expect(mockNotify).toHaveBeenCalledWith({
+      type: "follow",
+      userId: FOLLOWEE_DB_ID,
+      actorId: FOLLOWER_DB_ID,
+    });
+  });
+
+  it("still returns 200 with { following: true } when notify throws (notification failure never breaks the follow)", async () => {
+    // Locked decision (PROJECT.md §7): notification failure must NEVER break
+    // the parent action. The route wraps the notify call in try/catch.
+    setupHappyPath();
+    mockNotify.mockRejectedValue(new Error("notify DB exploded"));
+
+    const res = await callPost(FOLLOWEE_USERNAME);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ following: true });
+  });
+});
+
+describe("DELETE /api/users/[username]/follow — notify NOT called on unfollow", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it("does NOT call notify when a user unfollows (unfollowing is a silent action)", async () => {
+    setupHappyPath();
+
+    await callDelete(FOLLOWEE_USERNAME);
+
+    expect(mockNotify).not.toHaveBeenCalled();
   });
 });

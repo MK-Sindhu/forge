@@ -20,6 +20,15 @@ const {
   mockTxInsert,
   mockTxUpdate,
   mockTxSelect,
+  // Inner mock for db.select(...)...where() (no .limit()) — the fanout
+  // followers query after world creation. The follows query does NOT call
+  // .limit() — it returns all follower rows — so this separate mock handles
+  // the terminal .where() call on that chain.
+  mockDbSelectWhere,
+  // External boundary: @/lib/notifications — mocked so tests can assert the
+  // notifyMany() call shape without a real DB insert. The helper's internal
+  // logic is tested in src/lib/notifications.test.ts.
+  mockNotifyMany,
 } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   // External boundary: currentUser() fetches the full Clerk user object.
@@ -46,6 +55,13 @@ const {
   // Used by the tag re-select step (SELECT id, name FROM tags WHERE name = ANY($1)).
   // By default returns [] so tests that don't care about tags pass without noise.
   mockTxSelect: vi.fn(),
+  // Terminal .where() spy for the post-transaction followers fanout query:
+  //   db.select({ followerId }).from(follows).where(eq(follows.followeeId, ...))
+  // Returns [] by default — existing tests that don't care about fanout pass.
+  mockDbSelectWhere: vi.fn(),
+  // Mock for notifyMany() — the bulk notifications helper is an external DB
+  // boundary; mocking at this seam lets tests assert the fanout array shape.
+  mockNotifyMany: vi.fn(),
 }));
 
 // Mock @clerk/nextjs/server — real Clerk calls require a live Clerk environment
@@ -66,14 +82,35 @@ vi.mock("@/lib/r2", () => ({
   publicUrlFor: mockPublicUrlFor,
 }));
 
+// Mock @/lib/notifications — mocks the entire notifications helper module so
+// tests can assert notifyMany() is called with the correct fanout array without
+// a real DB insert or notifications table.
+vi.mock("@/lib/notifications", () => ({
+  notifyMany: mockNotifyMany,
+}));
+
 // Mock @/db — real DB connections require DATABASE_URL + a running Neon instance.
 // We mock both `db` (HTTP, single-query) and `dbPool` (WebSocket, transactions).
+//
+// The db.select() chain is used in two places post-transaction:
+//   1. (Legacy — no longer in this route but kept for safety) user-lookup
+//      → terminates with .limit() → mockUserLookup
+//   2. Followers fanout query: db.select({ followerId }).from(follows).where(...)
+//      → terminates with .where() (no .limit()) → mockDbSelectWhere
+//
+// To distinguish the two terminal calls, we model them as separate mocks.
 vi.mock("@/db", () => ({
   db: {
     select: () => ({
       from: () => ({
-        where: () => ({
+        where: (..._args: unknown[]) => ({
+          // Terminal for the old user-lookup chain (has .limit())
           limit: (...args: unknown[]) => mockUserLookup(...args),
+          // Also make .where() itself return the mockDbSelectWhere result
+          // so the followers query (which calls .where() as the terminal step)
+          // resolves correctly.
+          then: (resolve: (v: unknown) => void, reject: (e: unknown) => void) =>
+            mockDbSelectWhere().then(resolve, reject),
         }),
       }),
     }),
@@ -202,6 +239,12 @@ function setupHappyPath(userRow = DB_USER_NO_TOS) {
 
   // requireActiveDbUser returns the DB user row directly.
   mockRequireActiveDbUser.mockResolvedValue(userRow);
+
+  // Default: fanout followers query returns no followers — notifyMany not called.
+  // Individual notify tests override this with mockDbSelectWhere.mockResolvedValue([...]).
+  mockDbSelectWhere.mockResolvedValue([]);
+  // Default: notifyMany is a no-op so existing tests that don't assert on it pass.
+  mockNotifyMany.mockResolvedValue(undefined);
 
   // The route HEADs the GLB key and each media item key.
   // Return success for any key under the valid user/world prefix; fail otherwise.
@@ -1310,5 +1353,91 @@ describe("POST /api/worlds — tags", () => {
       worldTags,
       [expect.objectContaining({ worldId: VALID_WORLD_ID, tagId: "existing-tag-uuid-001" })]
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Block J — notifyMany() integration (sub-slice 7.5)
+//
+// After the world-creation transaction commits, the route queries the author's
+// followers and calls notifyMany() to fan out new-world notifications.
+// notifyMany() is mocked at the module level so tests see the raw call shape
+// without a real DB insert or notifications table.
+//
+// The followers query uses db.select({ followerId }).from(follows).where(...)
+// without a .limit() call. mockDbSelectWhere controls its return value — the
+// @/db mock wraps the .where() result as a thenable so `await` resolves it.
+// ---------------------------------------------------------------------------
+
+describe("POST /api/worlds — notifyMany integration", () => {
+  // Follower DB ids
+  const FOLLOWER_1 = "db-uuid-follower-001";
+  const FOLLOWER_2 = "db-uuid-follower-002";
+  const FOLLOWER_3 = "db-uuid-follower-003";
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    setupHappyPath();
+  });
+
+  it("calls notifyMany with N entries when the author has N followers", async () => {
+    // Seed 3 follower rows returned by the fanout query.
+    mockDbSelectWhere.mockResolvedValue([
+      { followerId: FOLLOWER_1 },
+      { followerId: FOLLOWER_2 },
+      { followerId: FOLLOWER_3 },
+    ]);
+
+    const res = await POST(makeRequest(makeValidBody()));
+
+    expect(res.status).toBe(201);
+    expect(mockNotifyMany).toHaveBeenCalledOnce();
+    expect(mockNotifyMany).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "new_world",
+          userId: FOLLOWER_1,
+          actorId: DB_USER_ID,
+          worldId: VALID_WORLD_ID,
+        }),
+        expect.objectContaining({
+          type: "new_world",
+          userId: FOLLOWER_2,
+          actorId: DB_USER_ID,
+          worldId: VALID_WORLD_ID,
+        }),
+        expect.objectContaining({
+          type: "new_world",
+          userId: FOLLOWER_3,
+          actorId: DB_USER_ID,
+          worldId: VALID_WORLD_ID,
+        }),
+      ])
+    );
+    // Exactly 3 entries — not more, not fewer.
+    const [callArg] = mockNotifyMany.mock.calls[0];
+    expect((callArg as unknown[]).length).toBe(3);
+  });
+
+  it("does NOT call notifyMany when the author has 0 followers (route guards with if (followerRows.length > 0))", async () => {
+    // Default from setupHappyPath: mockDbSelectWhere returns [].
+    const res = await POST(makeRequest(makeValidBody()));
+
+    expect(res.status).toBe(201);
+    expect(mockNotifyMany).not.toHaveBeenCalled();
+  });
+
+  it("still returns 201 when notifyMany throws (notification failure never breaks the world creation)", async () => {
+    // Locked decision (PROJECT.md §7): notification failure must NEVER break
+    // the parent action. The route wraps the notifyMany call in try/catch.
+    mockDbSelectWhere.mockResolvedValue([
+      { followerId: FOLLOWER_1 },
+    ]);
+    mockNotifyMany.mockRejectedValue(new Error("notifyMany DB exploded"));
+
+    const res = await POST(makeRequest(makeValidBody()));
+
+    expect(res.status).toBe(201);
+    expect(await res.json()).toMatchObject({ worldId: VALID_WORLD_ID });
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { users, worlds, likes, worldMedia, follows, comments, reposts, worldUpdates, reports, tags, worldTags, worldViews } from "./schema";
+import { users, worlds, likes, worldMedia, follows, comments, reposts, worldUpdates, reports, tags, worldTags, worldViews, notifications } from "./schema";
 
 describe("db schema exports", () => {
   it("exports the nine MVP tables", () => {
@@ -36,5 +36,17 @@ describe("db schema exports", () => {
     expect(worldViews.worldId).toBeDefined();
     expect(worldViews.day).toBeDefined();
     expect(worldViews.createdAt).toBeDefined();
+  });
+
+  it("exports the notifications table with expected column shape", () => {
+    expect(notifications).toBeDefined();
+    expect(notifications.id).toBeDefined();
+    expect(notifications.userId).toBeDefined();
+    expect(notifications.type).toBeDefined();
+    expect(notifications.actorId).toBeDefined();
+    expect(notifications.worldId).toBeDefined();
+    expect(notifications.commentId).toBeDefined();
+    expect(notifications.createdAt).toBeDefined();
+    expect(notifications.readAt).toBeDefined();
   });
 });

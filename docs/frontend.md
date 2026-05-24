@@ -19,12 +19,15 @@
 ```
 src/
 ├── app/                      # Next.js App Router pages
-│   ├── layout.tsx            # Root layout with ClerkProvider + Header + Footer
+│   ├── layout.tsx            # Root layout with ClerkProvider + Header + Footer + NotificationBell
 │   ├── page.tsx              # Feed (Recent / Following tabs)
 │   ├── world/[id]/           # World viewer page
 │   ├── profile/[username]/   # Profile page
 │   ├── upload/               # Multi-step upload form
-│   ├── notifications/        # (Slice 7 — to be added)
+│   ├── notifications/        # Notification feed (auth-gated server component)
+│   │   ├── page.tsx                  # Server page — first-page DB query + renders NotificationList
+│   │   ├── MarkAllReadOnView.tsx     # Client — fires mark-read POST after 1.5s delay
+│   │   └── NotificationList.tsx     # Client — holds notification array in state, cursor load-more
 │   ├── admin/reports/        # Admin moderation queue
 │   ├── legal/dmca/           # DMCA stub (replace before public launch)
 │   ├── legal/terms/          # 404 stub (build real page before public launch)
@@ -55,8 +58,10 @@ src/
     │   └── UpdatesTimeline.tsx    # owner-only composer + inline edit + delete
     ├── tag-chip/
     │   └── TagChip.tsx            # server component; rounded-pill link to /search?tag=; props: name, size ("default"|"small")
-    └── view-tracker/
-        └── ViewTracker.tsx        # client component; fires POST /api/worlds/[id]/views once on mount for signed-in users; returns null (no UI)
+    ├── view-tracker/
+    │   └── ViewTracker.tsx        # client component; fires POST /api/worlds/[id]/views once on mount for signed-in users; returns null (no UI)
+    └── notification-bell/
+        └── NotificationBell.tsx   # server component; bell icon + unread badge; link to /notifications; props: initialUnreadCount
 # Note: Header and Footer are inlined in src/app/layout.tsx, not separate component directories.
 ```
 
@@ -74,7 +79,7 @@ src/
 | `/admin/reports` | `src/app/admin/reports/page.tsx` | Server (admin gate) | Moderation queue | 6 |
 | `/legal/dmca` | `src/app/legal/dmca/page.tsx` | Static | DMCA placeholder | 6 |
 | `/legal/terms` | — (404 stub, file missing) | — | Terms placeholder (build before public launch) | 6 |
-| `/notifications` | — (not yet built) | Server | (Slice 7) | 7 |
+| `/notifications` | `src/app/notifications/page.tsx` | Server (auth-gated) | Notification feed. First page fetched via direct DB query. Cursor pagination via `NotificationList` client component. `MarkAllReadOnView` fires mark-read POST after 1.5s. Redirects to `/sign-in?redirect_url=/notifications` when signed out. | 7.5 |
 
 ## Clerk v7 Quirks (Critical)
 
@@ -134,6 +139,25 @@ useEffect(() => {
 ```
 
 React 19 StrictMode intentionally unmounts + remounts components in dev. Because both the guard-check and the guard-set happen in the same synchronous tick before `fetch()` is awaited, the second mount sees `firedRef.current === true` and returns early. Setting the flag in `.then()` would leave a window where the second mount fires another fetch before the first resolves.
+
+### Notification rendering (4 type shapes)
+
+Each notification type maps to a message string and a destination `href`. Logic lives in `NotificationList.tsx` `renderNotification()` helper:
+
+| Type | Message | `href` |
+|---|---|---|
+| `like` | `@actor liked your world Title` | `/world/{worldId}` |
+| `comment` | `@actor commented on Title: <snippet up to 80 chars>` | `/world/{worldId}#comments` |
+| `follow` | `@actor started following you` | `/profile/{actor.username}` |
+| `new_world` | `@actor published a new world: Title` | `/world/{worldId}` |
+
+Fallback for any unexpected type: `"New notification"` → `/`. Missing actor/world falls back gracefully (actor shown as `"Someone"`, world title as `"a world"`).
+
+### Auto mark-read on view
+
+`MarkAllReadOnView` mounts on the `/notifications` page and fires `POST /api/notifications/mark-read` with `{ all: true }` after a 1.5-second delay. The delay lets the user see the unread visual state before it clears. Implementation uses `useRef<boolean>` + `useEffect` + `setTimeout`. The ref is set to `true` synchronously **before** the `setTimeout` call (not in the callback) — this is the same StrictMode-safety pattern as `ViewTracker`. The timer is cleaned up in the effect return to prevent the POST firing if the user navigates away in under 1.5s.
+
+**Locked v1 decision:** no polling for the bell badge. The unread count is fetched server-side once per page load (layout re-render on navigation). Real-time updates are a future concern.
 
 ### Trending algorithm
 
@@ -203,9 +227,12 @@ Shipped in 7.3:
 Shipped in 7.4:
 - Trending tab on `/` — third tab in order Recent → Trending → Following. `?tab=trending` branch queries with `likes_count × pow(0.5, age_hours/24)` decay ordering, 30-day window cap, public (no auth gate). Empty state: "No trending worlds yet — like some to seed the algorithm." See "Trending algorithm" in Patterns.
 
-Still to come:
-- Bell icon in `Header` with unread count badge (7.5)
-- `/notifications` page (paginated list, mark-as-read on view) (7.5)
+Shipped in 7.5:
+- `NotificationBell` server component (`src/components/notification-bell/NotificationBell.tsx`) — bell SVG icon + red badge (capped at "99+" for ≥100 unread). Pure server component (no `"use client"`). Props: `initialUnreadCount: number`. Mounted in `layout.tsx` inside `<Show when="signed-in">` between the Admin link and Upload link. No polling in v1 — badge refreshes on navigation (layout re-renders server-side).
+- Layout change: `layout.tsx` now selects `users.id` (needed for the notifications count join) and runs a second DB query for `count(*) WHERE read_at IS NULL`. Both queries happen in the same `if (userId)` block — net cost is one extra cheap partial-index query per signed-in request.
+- `/notifications/page.tsx` — server component. Auth-gate via `await auth()`; redirects if not signed in. Fetches first page via direct DB query (20 items + 1 to detect next page). Renders `<MarkAllReadOnView />` (client) and `<NotificationList initial={...} initialCursor={...} />` (client).
+- `MarkAllReadOnView` (`src/app/notifications/MarkAllReadOnView.tsx`) — client component, returns `null`. Uses `useRef<boolean>` + `useEffect` + `setTimeout(1500)` to POST `{ all: true }` to `/api/notifications/mark-read` once after 1.5s. StrictMode-safe (ref set before timer, not in callback).
+- `NotificationList` (`src/app/notifications/NotificationList.tsx`) — client component. Holds notification array in `useState`. Per-type message rendering (4 types; see Patterns). "Load more" button fetches next page via `GET /api/notifications?cursor=...` and appends to state. Error state via `role="alert"`. Empty state when 0 items.
 
 ## Phase 2 Frontend Additions (Future, Not Now)
 

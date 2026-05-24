@@ -16,6 +16,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { worlds, comments } from "@/db/schema";
 import { requireActiveDbUser } from "@/lib/users";
+import { notify } from "@/lib/notifications";
 
 // ---------------------------------------------------------------------------
 // Shared validation
@@ -115,6 +116,26 @@ export async function POST(
         body: bodyParsed.data.body,
       })
       .returning();
+
+    // Best-effort: notify world owner after the insert commits.
+    try {
+      const [worldRow] = await db
+        .select({ ownerId: worlds.userId })
+        .from(worlds)
+        .where(eq(worlds.id, worldId))
+        .limit(1);
+      if (worldRow) {
+        await notify({
+          userId: worldRow.ownerId,
+          type: "comment",
+          actorId: dbUser.id,
+          worldId,
+          commentId: created.id,
+        });
+      }
+    } catch (err) {
+      console.error("[POST comments] notify call wrapper failed:", err);
+    }
 
     return NextResponse.json(
       {

@@ -25,6 +25,11 @@
 | 15 | Admin moderation tools | 6 | ✅ Verified |
 | 16 | Suspensions + safety-valve report endpoint | 6 | ✅ Verified |
 | 17 | DMCA + Footer | 6 | 🟢 Stub — needs real content before public launch |
+| 18 | Tags on worlds | 7 | 🟢 Deployed, not yet prod-smoked |
+| 19 | Search (Postgres FTS) | 7 | 🟢 Deployed, not yet prod-smoked |
+| 20 | View counts | 7 | 🟢 Deployed, not yet prod-smoked |
+| 21 | Trending feed tab | 7 | 🟢 Deployed, not yet prod-smoked |
+| 22 | Notifications | 7 | 🟢 Deployed, not yet prod-smoked |
 
 ---
 
@@ -199,15 +204,63 @@ Reposts surface in the Following feed (Slice 4 work to merge originals + reposts
 
 ---
 
-## Slice 7 Features (Coming)
+## 18. Tags on worlds
 
-| # | Feature | Slice |
-|---|---|---|
-| 17 | Tags on worlds | 7 |
-| 18 | Search | 7 |
-| 19 | View counts | 7 |
-| 20 | Trending feed tab | 7 |
-| 21 | Notifications | 7 |
+**Slice 7.1** · Creators tag worlds with 1–5 free-form lowercase labels. Tags surface as clickable chips on world pages and feed/profile cards. Click → `/search?tag=<name>`.
+
+| Layer | Where |
+|---|---|
+| Frontend | `UploadForm` metadata step gets a tag input (tokenize on comma/Enter, validate `[a-z0-9][a-z0-9_-]*` 1–32 chars, max 5, dedupe); `<TagChip>` server component renders the pill UI; world page + feed cards + profile cards all show chip rows (cards cap at 3 + "+N more" overflow) |
+| Backend | `POST /api/worlds` extended (zod `tags: z.array(z.string()).max(5).optional()`, server normalizes + validates regex, transactional insert into `tags` with `ON CONFLICT DO NOTHING` + re-select + bulk `world_tags` insert); `GET /api/worlds/[id]` returns `tags: { name: string }[]` |
+| DB | `tags` (uuid PK, `name text UNIQUE NOT NULL` with CHECK on length + lowercase), `world_tags` (composite PK on `(world_id, tag_id)`, both FKs CASCADE) |
+| Migration | `0006_slice7_tags.sql` |
+
+## 19. Search (Postgres FTS)
+
+**Slice 7.2** · Public full-text search across world title + description + tag names. Header form (public, no auth) submits `?q=` to `/search`. Tag chips link to `/search?tag=`.
+
+| Layer | Where |
+|---|---|
+| Frontend | Search `<form action="/search" method="get">` in `layout.tsx` header (hidden md:block); `/search/page.tsx` server component handles 4 branches (none/q/tag/both); reuses the feed card layout |
+| Backend | No new API route — direct `db.query.worlds.findMany({ where: sql\`search_vector @@ websearch_to_tsquery('english', ${q})\`, orderBy: sql\`ts_rank(search_vector, websearch_to_tsquery('english', ${q})) DESC, created_at DESC\`, limit: 50, with: { ... } })` |
+| DB | `worlds.search_vector` tsvector column (DB-managed, NOT in Drizzle schema); helper function `worlds_search_vector_build(world_id)` assembles weighted vector from title (A) + description (B) + tag names (A); BEFORE INSERT/UPDATE trigger on `worlds`; AFTER INSERT/DELETE trigger on `world_tags` keeps the vector fresh on tag changes; GIN index `worlds_search_vector_gin` |
+| Migration | `0007_slice7_search.sql` |
+
+⚠️ v1 cap: 50 results, no pagination. Revisit if launch traffic outgrows it.
+
+## 20. View counts
+
+**Slice 7.3** · Per-user-per-day-deduped view tracking. Counts shown on world page + cards. Anonymous views ignored (locked decision).
+
+| Layer | Where |
+|---|---|
+| Frontend | `<ViewTracker>` client component fires `POST /api/worlds/[id]/views` once on world-page mount; `useRef` flag set BEFORE fetch prevents React 19 StrictMode double-fire; silent failure (best-effort); feed cards now show view count alongside likes |
+| Backend | `POST /api/worlds/[id]/views` — auth + active, uuid param validation, 404 if world missing; transactional insert into `world_views` with `onConflictDoNothing()` + recount of `worlds.views` from the table (mirror of likes recount-from-source pattern); 503 on DB error |
+| DB | `world_views` (composite PK on `(viewer_id, world_id, day::date)`, both FKs CASCADE; index on `world_id`); reuses existing `worlds.views integer NOT NULL DEFAULT 0` column |
+| Migration | `0008_slice7_views.sql` |
+
+## 21. Trending feed tab
+
+**Slice 7.4** · Third feed tab between Recent and Following. Public (no auth gate). Ranking = `likes_count × pow(0.5, age_in_hours / 24)` — 24h half-life.
+
+| Layer | Where |
+|---|---|
+| Frontend | `/?tab=trending` branch in `src/app/page.tsx`. Tab bar order: Recent → Trending → Following (Following remains auth-gated). 30-day window cap on candidate worlds to bound scan cost. Recent stays purely chronological. |
+| Backend | No new schema, no migration, no API — pure server-component query. Raw SQL in the `orderBy`: `${worlds.likesCount} * pow(0.5, extract(epoch from (now() - ${worlds.createdAt})) / 3600 / 24) DESC, ${worlds.createdAt} DESC`. |
+| Empty state | "No trending worlds yet — like some to seed the algorithm." |
+
+## 22. Notifications
+
+**Slice 7.5** · In-app bell + `/notifications` page. Events: like, comment, follow, new-world-from-followee. Email/push parked (v1 in-app only).
+
+| Layer | Where |
+|---|---|
+| Frontend | `<NotificationBell>` server component in `layout.tsx` header (inside `<Show when="signed-in">`, between Admin and Upload links); badge shows unread count up to "99+"; no polling (badge refreshes on next nav); `/notifications` server page (auth-gated, redirects to sign-in); `<NotificationList>` client component holds the array in state + cursor "Load more"; `<MarkAllReadOnView>` client wrapper POSTs mark-read after 1.5s delay (gives user time to see unread state) |
+| Backend | 3 new routes — `GET /api/notifications` (cursor pagination, mirrors comments shape, joins actor + world + comment), `POST /api/notifications/mark-read` (body `{ ids?: string[], all?: boolean }`, always scoped to `user_id = $dbUser`), `GET /api/notifications/unread-count` (count via partial index). `notify()` + `notifyMany()` helpers in `src/lib/notifications.ts` — best-effort, self-actor suppressed, all DB errors swallowed (locked: notification failure must NEVER break the parent action). Integrated into `POST /api/worlds/[id]/likes`, `POST /api/worlds/[id]/comments`, `POST /api/users/[username]/follow`, and `POST /api/worlds` (fanout to followers via `notifyMany`) — all post-commit, double-wrapped in try/catch. |
+| DB | `notifications` (id PK, user_id + actor_id + world_id + comment_id FKs CASCADE, type CHECK enum, created_at, read_at nullable). Two indexes: `(user_id, created_at DESC)` for the feed; partial `(user_id) WHERE read_at IS NULL` for cheap unread-count queries. |
+| Migration | `0009_slice7_notifications.sql` |
+
+⚠️ No-polling design means the bell badge updates on the next page navigation, not in real-time. Acceptable for v1; revisit if engagement patterns reveal heavy notification activity.
 
 ## Parking Lot Features (Future Phases)
 

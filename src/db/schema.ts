@@ -136,6 +136,9 @@ export const usersRelations = relations(users, ({ many }) => ({
   reposts: many(reposts),
   // Slice 6 — moderation
   reports: many(reports, { relationName: "reporter" }), // reports filed by this user
+  // Slice 7.5 — notifications
+  receivedNotifications: many(notifications, { relationName: "notificationRecipient" }),
+  actedNotifications: many(notifications, { relationName: "notificationActor" }),
 }));
 
 export const worldsRelations = relations(worlds, ({ one, many }) => ({
@@ -363,3 +366,68 @@ export const worldViews = pgTable("world_views", {
   primaryKey({ columns: [t.viewerId, t.worldId, t.day] }),
   index("world_views_world_id_idx").on(t.worldId),
 ]);
+
+// ---------------------------------------------------------------------------
+// notifications
+// Slice 7.5 — in-app notifications for like / comment / follow / new_world.
+//
+// type is validated at the DB level via a named CHECK constraint (same
+// pattern as world_media.type, reports.reason). The four allowed values are:
+//   'like'      — someone liked the recipient's world
+//   'comment'   — someone commented on the recipient's world
+//   'follow'    — someone followed the recipient
+//   'new_world' — someone the recipient follows published a new world
+//
+// actorId, worldId, commentId are nullable FKs (CASCADE DELETE) — present
+// depending on the notification type.
+//
+// readAt is null until the notification is marked read.
+//
+// Two indexes:
+//   notifications_user_id_created_at_idx  — (user_id, created_at DESC) for the feed query
+//   notifications_user_id_unread_idx      — PARTIAL (user_id) WHERE read_at IS NULL
+//                                           for the cheap unread-count badge query
+//
+// Self-notifications (userId === actorId) are suppressed in the notify()
+// helper, not at the DB level — no DB CHECK is added for this.
+// ---------------------------------------------------------------------------
+export const notifications = pgTable("notifications", {
+  id:        uuid("id").primaryKey().defaultRandom(),
+  userId:    uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  type:      text("type").notNull(),
+  actorId:   uuid("actor_id").references(() => users.id,         { onDelete: "cascade" }),
+  worldId:   uuid("world_id").references(() => worlds.id,         { onDelete: "cascade" }),
+  commentId: uuid("comment_id").references(() => comments.id,     { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  readAt:    timestamp("read_at",    { withTimezone: true }),
+}, (t) => [
+  index("notifications_user_id_created_at_idx").on(t.userId, desc(t.createdAt)),
+  index("notifications_user_id_unread_idx").on(t.userId).where(sql`${t.readAt} IS NULL`),
+  check("notifications_type_check", sql`${t.type} IN ('like', 'comment', 'follow', 'new_world')`),
+]);
+
+// ---------------------------------------------------------------------------
+// relations (Slice 7.5 additions)
+// Two FKs from notifications → users (recipient + actor) require relationName
+// disambiguation, following the same pattern used for follows → users.
+// ---------------------------------------------------------------------------
+export const notificationsRelations = relations(notifications, ({ one }) => ({
+  recipient: one(users, {
+    fields: [notifications.userId],
+    references: [users.id],
+    relationName: "notificationRecipient",
+  }),
+  actor: one(users, {
+    fields: [notifications.actorId],
+    references: [users.id],
+    relationName: "notificationActor",
+  }),
+  world: one(worlds, {
+    fields: [notifications.worldId],
+    references: [worlds.id],
+  }),
+  comment: one(comments, {
+    fields: [notifications.commentId],
+    references: [comments.id],
+  }),
+}));
