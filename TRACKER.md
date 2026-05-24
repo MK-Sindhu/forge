@@ -143,7 +143,8 @@ Schema additions + locked design decisions for Slice 7 are recorded in `PROJECT.
 
 | Task | Status |
 |---|---|
-| Real Terms of Service page (currently 404 stub) | ⬜ |
+| Real Terms of Service page (currently 404 stub) | 🟡 Draft shipped (`/legal/terms`) — amber DRAFT banner, 11 sections, ~900 words. Awaiting attorney review + finalized copy before public launch. Governing law + contact email are placeholders. |
+| Real Privacy Policy page (none today — legally required) | ⬜ Added 2026-05-25 after frontend-dev flagged the gap during Terms scaffold. FORGE collects account data via Clerk, logs IPs via Vercel, tracks user-scoped view counts — Privacy Policy is required by GDPR, CCPA, and most other regimes. Scaffold a DRAFT alongside Terms; attorney finalizes both. |
 | Real DMCA email (currently `dmca@forge.example` placeholder) | ⬜ |
 | Unsuspend button in admin UI | ✅ Shipped — Suspended tab + `UnsuspendButton` on `/admin/reports?view=suspended` |
 | Onboarding pass — empty-feed state for new users | ✅ Shipped — `WelcomeCallout` + actionable empty states |
@@ -160,7 +161,7 @@ Things that work but should be cleaned up before or shortly after launch.
 |---|---|---|---|
 | 1 | ~~No "Unsuspend" button in admin UI — currently SQL-only~~ **Resolved** — Suspended tab + `UnsuspendButton` shipped (launch-ops task, this session) | — | `/admin/reports?view=suspended` |
 | 2 | `/legal/dmca` placeholder email (`dmca@forge.example`) | **Blocker for public launch** | `src/app/legal/dmca/page.tsx` |
-| 3 | `/legal/terms` is a 404 stub | **Blocker for public launch** | `src/app/legal/terms/page.tsx` |
+| 3 | `/legal/terms` draft shipped — reviewable starting point exists. Attorney review still required before public launch; governing law + contact email are explicit placeholders in the file. | **Still needs attorney review + final copy before public launch** | `src/app/legal/terms/page.tsx` |
 | 4 | Slices 2, 4, 5 deployed but not yet prod-smoke-tested (Slices 6 + 7 verified) | Medium | Production |
 | 5 | `dbPool` (WebSocket Drizzle client) doesn't have schema wired — `db.query.*` only works on `db` (HTTP). If a route needs transactions AND relational queries, fix this. | Low | `src/db/*.ts` |
 

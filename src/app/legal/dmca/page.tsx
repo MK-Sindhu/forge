@@ -92,6 +92,17 @@ export default function DmcaPage() {
       </p>
 
       <p className="mt-10 text-sm text-neutral-500 dark:text-neutral-500">
+        For the broader rules governing use of FORGE, see our{" "}
+        <a
+          href="/legal/terms"
+          className="underline hover:text-neutral-700 dark:hover:text-neutral-300"
+        >
+          Terms of Service
+        </a>
+        .
+      </p>
+
+      <p className="mt-4 text-sm text-neutral-500 dark:text-neutral-500">
         Last updated: {new Date().toISOString().slice(0, 10)}
       </p>
     </main>

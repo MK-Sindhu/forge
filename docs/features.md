@@ -24,7 +24,7 @@
 | 14 | Reports / flagging | 6 | ✅ Verified |
 | 15 | Admin moderation tools (+ Suspended tab + Unsuspend button) | 6 + launch-ops | ✅ Verified |
 | 16 | Suspensions + safety-valve report endpoint + Unsuspend UI | 6 + launch-ops | ✅ Verified |
-| 17 | DMCA + Footer | 6 | 🟢 Stub — needs real content before public launch |
+| 17 | DMCA + Footer + Terms (draft) | 6 + launch-ops | 🟡 DMCA page live (placeholder email); Terms page live as reviewable draft (amber DRAFT banner, pending attorney review). Both need final copy before public launch. |
 | 18 | Tags on worlds | 7 | ✅ Verified |
 | 19 | Search (Postgres FTS) | 7 | ✅ Verified |
 | 20 | View counts | 7 | ✅ Verified |
@@ -194,15 +194,17 @@ Tab routing: `?status=open|resolved|dismissed` for report-status views; `?view=s
 | Backend | `requireActiveDbUser()` on 12 write endpoints; `requireAdmin()` for the suspend/unsuspend actions; suspend self-action blocked |
 | DB | `users.suspended_at` (nullable timestamp — null means active) |
 
-## 16. DMCA / Footer
+## 16. DMCA / Footer / Terms (draft)
 
-**Slice 6** · Footer block on root layout with DMCA + Terms links.
+**Slice 6 + launch-ops** · Footer block on root layout with DMCA + Terms links.
 
 | Layer | Where |
 |---|---|
-| Frontend | Footer in root layout; `/legal/dmca` (placeholder content); `/legal/terms` is a 404 stub |
+| Frontend | Footer in root layout; `/legal/dmca` (placeholder email — `dmca@forge.example`); `/legal/terms` (draft — amber DRAFT banner, 11 sections, pending attorney review) |
 
-**Both need real content before public launch.** Placeholders today.
+**DMCA page** needs real contact email before public launch (`dmca@forge.example` is a placeholder).
+
+**Terms page** ships as a reviewable draft. Amber DRAFT banner is prominent. Governing law and contact email (`legal@forge.example`) are marked placeholders. Attorney review required before public launch. The DMCA page now links back to Terms.
 
 ---
 

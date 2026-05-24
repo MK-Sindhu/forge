@@ -29,8 +29,8 @@ src/
 │   │   ├── MarkAllReadOnView.tsx     # Client — fires mark-read POST after 1.5s delay
 │   │   └── NotificationList.tsx     # Client — holds notification array in state, cursor load-more
 │   ├── admin/reports/        # Admin moderation queue
-│   ├── legal/dmca/           # DMCA stub (replace before public launch)
-│   ├── legal/terms/          # 404 stub (build real page before public launch)
+│   ├── legal/dmca/           # DMCA policy page (placeholder email — replace before public launch)
+│   ├── legal/terms/          # Draft Terms of Service (amber DRAFT banner; attorney review pending)
 │   ├── sign-in/[[...sign-in]]/   # Clerk catch-all — renders <SignIn />
 │   └── sign-up/[[...sign-up]]/   # Clerk catch-all — renders <SignUp />
 └── components/               # Shared React components (each in its own kebab-case directory)
@@ -82,7 +82,7 @@ src/
 | `/sign-up/[[...sign-up]]` | `src/app/sign-up/[[...sign-up]]/page.tsx` | Server (Clerk drop-in) | Clerk sign-up | 0 |
 | `/admin/reports` | `src/app/admin/reports/page.tsx` | Server (admin gate) | Moderation queue. Four tabs: Open (`?status=open` or default) / Resolved (`?status=resolved`) / Dismissed (`?status=dismissed`) / Suspended (`?view=suspended`). The Suspended view queries `users WHERE suspended_at IS NOT NULL ORDER BY suspended_at DESC` and renders avatar + username + "Suspended {relative time}" + `UnsuspendButton` per row. Status tabs use `?status=...`; the Suspended tab uses a separate `?view=suspended` param to distinguish the shape difference. | 6, launch-ops |
 | `/legal/dmca` | `src/app/legal/dmca/page.tsx` | Static | DMCA placeholder | 6 |
-| `/legal/terms` | — (404 stub, file missing) | — | Terms placeholder (build before public launch) | 6 |
+| `/legal/terms` | `src/app/legal/terms/page.tsx` | Static (server component) | Draft Terms of Service — 11 numbered sections covering acceptance, eligibility, account rules, creator ownership + license grant, content standards, reporting, DMCA cross-link, termination, no-crypto policy, disclaimers, and changes. Includes amber DRAFT banner. Pending attorney review + final copy before public launch. | launch-ops |
 | `/notifications` | `src/app/notifications/page.tsx` | Server (auth-gated) | Notification feed. First page fetched via direct DB query. Cursor pagination via `NotificationList` client component. `MarkAllReadOnView` fires mark-read POST after 1.5s. Redirects to `/sign-in?redirect_url=/notifications` when signed out. | 7.5 |
 
 ## Clerk v7 Quirks (Critical)
