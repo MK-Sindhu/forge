@@ -2,8 +2,9 @@
  * r2.ts — singleton R2 client + typed helpers.
  *
  * Server-only module. Never import this from client components.
- * The S3Client is module-scoped so it's created once per Lambda/Edge cold
- * start and reused across requests (avoids socket leaks).
+ * The S3Client is created lazily on the first request that needs it (not at
+ * module load time) so Next.js build-time page-data collection can import this
+ * module without R2 env vars being present.
  */
 
 import {
@@ -15,31 +16,37 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 // ---------------------------------------------------------------------------
-// Credential validation at module load time.
-// If any of the three required env vars are absent we throw immediately rather
-// than producing a confusing "invalid credentials" error at request time.
-// We only check, never log the values.
+// Lazy singleton S3Client
 // ---------------------------------------------------------------------------
 
-const accountId = process.env.R2_ACCOUNT_ID;
-const accessKeyId = process.env.R2_ACCESS_KEY_ID;
-const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+let _r2: S3Client | null = null;
 
-if (!accountId || !accessKeyId || !secretAccessKey) {
-  throw new Error(
-    "R2 env vars missing (R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY)"
-  );
+/**
+ * Returns the shared S3Client, initialising it on first call.
+ * Throws at call time (not import time) if the required env vars are absent —
+ * this keeps the module safe to import during Next.js build-time analysis.
+ */
+function getR2Client(): S3Client {
+  if (_r2) return _r2;
+
+  const accountId = process.env.R2_ACCOUNT_ID;
+  const accessKeyId = process.env.R2_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+
+  if (!accountId || !accessKeyId || !secretAccessKey) {
+    throw new Error(
+      "R2 env vars missing (R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY)"
+    );
+  }
+
+  _r2 = new S3Client({
+    region: "auto",
+    endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+    credentials: { accessKeyId, secretAccessKey },
+  });
+
+  return _r2;
 }
-
-// ---------------------------------------------------------------------------
-// Singleton S3Client
-// ---------------------------------------------------------------------------
-
-export const r2 = new S3Client({
-  region: "auto",
-  endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
-  credentials: { accessKeyId, secretAccessKey },
-});
 
 // ---------------------------------------------------------------------------
 // Types
@@ -117,7 +124,7 @@ export async function getPresignedPutUrl(args: {
     ContentLength: contentLength,
   });
 
-  return getSignedUrl(r2, command, { expiresIn: expiresInSeconds });
+  return getSignedUrl(getR2Client(), command, { expiresIn: expiresInSeconds });
 }
 
 // ---------------------------------------------------------------------------
@@ -144,7 +151,7 @@ export async function headObject(args: {
 
   let response: HeadObjectCommandOutput;
   try {
-    response = await r2.send(command);
+    response = await getR2Client().send(command);
   } catch (err: unknown) {
     // AWS SDK surfaces not-found as an error whose $metadata.httpStatusCode
     // is 404, or whose name is "NotFound" / "NoSuchKey".

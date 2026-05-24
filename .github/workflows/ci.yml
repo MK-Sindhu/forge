@@ -17,6 +17,16 @@ jobs:
       DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder?sslmode=disable"
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_placeholder_for_ci_build_only"
       CLERK_SECRET_KEY: "sk_test_placeholder_for_ci_build_only"
+      # R2 placeholders — needed at build time because src/lib/r2.ts
+      # throws at module load when these are missing, and the upload-sign
+      # route imports it during static page-data collection.
+      R2_ACCOUNT_ID: "placeholder_r2_account_for_ci"
+      R2_ACCESS_KEY_ID: "placeholder_r2_access_key_for_ci"
+      R2_SECRET_ACCESS_KEY: "placeholder_r2_secret_for_ci"
+      R2_BUCKET_GLB: "forge-glb"
+      R2_BUCKET_MEDIA: "forge-media"
+      R2_PUBLIC_URL_GLB: "https://placeholder.r2.dev"
+      R2_PUBLIC_URL_MEDIA: "https://placeholder.r2.dev"
 
     steps:
       - name: Checkout
