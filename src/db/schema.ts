@@ -8,7 +8,7 @@ import {
   primaryKey,
   check,
 } from "drizzle-orm/pg-core";
-import { relations, sql } from "drizzle-orm";
+import { relations, sql, desc } from "drizzle-orm";
 
 // ---------------------------------------------------------------------------
 // users
@@ -126,12 +126,18 @@ export const usersRelations = relations(users, ({ many }) => ({
   // relationName disambiguates the two FKs from follows → users
   following: many(follows, { relationName: "follower" }), // rows where this user IS the follower
   followers: many(follows, { relationName: "followee" }), // rows where this user IS the followee
+  // Slice 4 — engagement
+  comments: many(comments),
+  reposts: many(reposts),
 }));
 
 export const worldsRelations = relations(worlds, ({ one, many }) => ({
   user: one(users, { fields: [worlds.userId], references: [users.id] }),
   likes: many(likes),
   media: many(worldMedia),
+  // Slice 4 — engagement
+  comments: many(comments),
+  reposts: many(reposts),
 }));
 
 export const worldMediaRelations = relations(worldMedia, ({ one }) => ({
@@ -154,4 +160,60 @@ export const followsRelations = relations(follows, ({ one }) => ({
     references: [users.id],
     relationName: "followee",
   }),
+}));
+
+// ---------------------------------------------------------------------------
+// comments
+// ---------------------------------------------------------------------------
+export const comments = pgTable(
+  "comments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    worldId: uuid("world_id")
+      .notNull()
+      .references(() => worlds.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("comments_world_id_created_at_idx").on(t.worldId, desc(t.createdAt)),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// reposts
+// Composite PK on (userId, worldId) — a user can repost a world at most once.
+// No self-repost CHECK: that's an API-layer concern, schema stays flexible.
+// ---------------------------------------------------------------------------
+export const reposts = pgTable(
+  "reposts",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    worldId: uuid("world_id")
+      .notNull()
+      .references(() => worlds.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.worldId] }),
+    index("reposts_user_id_created_at_idx").on(t.userId, desc(t.createdAt)),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// relations (Slice 4 additions)
+// ---------------------------------------------------------------------------
+export const commentsRelations = relations(comments, ({ one }) => ({
+  world: one(worlds, { fields: [comments.worldId], references: [worlds.id] }),
+  user: one(users, { fields: [comments.userId], references: [users.id] }),
+}));
+
+export const repostsRelations = relations(reposts, ({ one }) => ({
+  user: one(users, { fields: [reposts.userId], references: [users.id] }),
+  world: one(worlds, { fields: [reposts.worldId], references: [worlds.id] }),
 }));

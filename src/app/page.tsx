@@ -2,9 +2,10 @@ import Link from "next/link";
 import Image from "next/image";
 import { redirect } from "next/navigation";
 import { desc, eq, inArray } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { auth } from "@clerk/nextjs/server";
 import { db } from "@/db";
-import { worlds, users, follows } from "@/db/schema";
+import { worlds, users, follows, reposts } from "@/db/schema";
 import { WorldCardMedia } from "@/components/world-card-media/WorldCardMedia";
 
 // ---------------------------------------------------------------------------
@@ -21,6 +22,11 @@ type FeedWorld = {
     avatarUrl: string | null;
   };
   media: { type: string; url: string }[];
+};
+
+type FeedEntry = FeedWorld & {
+  activityAt: Date;
+  repostedBy: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -55,7 +61,7 @@ export default async function FeedPage({
   }
 
   // --- Queries (only one fires per request) ----------------------------------
-  let rows: FeedWorld[];
+  let rows: FeedEntry[];
 
   if (activeTab === "following") {
     // Step 1: look up followee IDs
@@ -68,11 +74,45 @@ export default async function FeedPage({
 
     const followeeIds = followeeRows.map((r) => r.id);
 
-    // Step 2: fetch their worlds (or short-circuit to empty)
+    // Early-return: no followees → empty feed, no further queries
     if (followeeIds.length === 0) {
       rows = [];
     } else {
-      const result = await db.query.worlds.findMany({
+      // Step 2: repost rows from followees — dedupe per world in JS, keeping
+      // the most recent reposter (rows arrive DESC so first-seen wins).
+      // Uses alias() from drizzle-orm/pg-core to join users a second time
+      // for the reposter's username without conflicting with the world-author join.
+      const reposter = alias(users, "reposter");
+
+      const repostRows = await db
+        .select({
+          worldId: reposts.worldId,
+          reposterUsername: reposter.username,
+          repostedAt: reposts.createdAt,
+        })
+        .from(reposts)
+        .innerJoin(reposter, eq(reposter.id, reposts.userId))
+        .where(inArray(reposts.userId, followeeIds))
+        .orderBy(desc(reposts.createdAt))
+        .limit(50);
+
+      // Dedupe: for each worldId keep only the most recent reposter
+      // (rows are already in DESC order so the first occurrence is the latest)
+      const repostByWorld = new Map<
+        string,
+        { reposterUsername: string; repostedAt: Date }
+      >();
+      for (const r of repostRows) {
+        if (!repostByWorld.has(r.worldId)) {
+          repostByWorld.set(r.worldId, {
+            reposterUsername: r.reposterUsername,
+            repostedAt: r.repostedAt,
+          });
+        }
+      }
+
+      // Step 3: original worlds created by followees
+      const originalRows = await db.query.worlds.findMany({
         where: inArray(worlds.userId, followeeIds),
         orderBy: [desc(worlds.createdAt)],
         limit: 50,
@@ -84,9 +124,7 @@ export default async function FeedPage({
           createdAt: true,
         },
         with: {
-          user: {
-            columns: { username: true, avatarUrl: true },
-          },
+          user: { columns: { username: true, avatarUrl: true } },
           media: {
             where: (m, { or, eq: oreq }) =>
               or(oreq(m.type, "thumbnail"), oreq(m.type, "video")),
@@ -95,7 +133,67 @@ export default async function FeedPage({
           },
         },
       });
-      rows = result as FeedWorld[];
+
+      // Step 4: fetch full world data for worlds that were reposted but whose
+      // author is NOT in followeeIds (i.e. not already in originalRows)
+      const originalIds = new Set(originalRows.map((w) => w.id));
+      const repostOnlyIds = [...repostByWorld.keys()].filter(
+        (id) => !originalIds.has(id)
+      );
+
+      const repostOnlyRows =
+        repostOnlyIds.length === 0
+          ? []
+          : await db.query.worlds.findMany({
+              where: inArray(worlds.id, repostOnlyIds),
+              columns: {
+                id: true,
+                title: true,
+                likesCount: true,
+                views: true,
+                createdAt: true,
+              },
+              with: {
+                user: { columns: { username: true, avatarUrl: true } },
+                media: {
+                  where: (m, { or, eq: oreq }) =>
+                    or(oreq(m.type, "thumbnail"), oreq(m.type, "video")),
+                  limit: 2,
+                  columns: { type: true, url: true },
+                },
+              },
+            });
+
+      // Step 5: merge + sort by activityAt DESC, cap at 50
+      const merged: FeedEntry[] = [
+        ...(originalRows as FeedWorld[]).map((w) => {
+          const r = repostByWorld.get(w.id);
+          // If a followee reposted this world AND the repost is more recent
+          // than the original publish, surface it as a repost with that
+          // activity timestamp. This also handles the case where a creator
+          // reposts their own world.
+          if (r && r.repostedAt > w.createdAt) {
+            return {
+              ...w,
+              activityAt: r.repostedAt,
+              repostedBy: r.reposterUsername,
+            };
+          }
+          return { ...w, activityAt: w.createdAt, repostedBy: null };
+        }),
+        ...(repostOnlyRows as FeedWorld[]).map((w) => {
+          // Guaranteed: every id in repostOnlyIds has an entry in repostByWorld
+          const r = repostByWorld.get(w.id)!;
+          return {
+            ...w,
+            activityAt: r.repostedAt,
+            repostedBy: r.reposterUsername,
+          };
+        }),
+      ];
+
+      merged.sort((a, b) => b.activityAt.getTime() - a.activityAt.getTime());
+      rows = merged.slice(0, 50);
     }
   } else {
     // Recent tab — original behavior
@@ -121,7 +219,12 @@ export default async function FeedPage({
         },
       },
     });
-    rows = result as FeedWorld[];
+    // Recent tab has no repost attribution — activityAt equals createdAt, repostedBy is null
+    rows = (result as FeedWorld[]).map((w) => ({
+      ...w,
+      activityAt: w.createdAt,
+      repostedBy: null,
+    }));
   }
 
   return (
@@ -198,49 +301,60 @@ function TabLink({
 // ---------------------------------------------------------------------------
 // FeedCard
 // ---------------------------------------------------------------------------
-function FeedCard({ world }: { world: FeedWorld }) {
+function FeedCard({ world }: { world: FeedEntry }) {
   const thumbnailUrl =
     world.media.find((m) => m.type === "thumbnail")?.url ?? null;
   const videoUrl = world.media.find((m) => m.type === "video")?.url ?? null;
 
   return (
-    <Link
-      href={`/world/${world.id}`}
-      className="group block overflow-hidden rounded-lg border border-neutral-200 transition hover:border-neutral-400 dark:border-neutral-800 dark:hover:border-neutral-600"
-    >
-      {/* Media area — thumbnail by default; swaps to video preview on hover */}
-      <WorldCardMedia
-        thumbnailUrl={thumbnailUrl}
-        videoUrl={videoUrl}
-        alt={world.title}
-        sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, (max-width: 1280px) 33vw, 25vw"
-        likesCount={world.likesCount}
-      />
-
-      {/* Card body */}
-      <div className="p-3">
-        <h2 className="line-clamp-2 text-sm font-medium text-neutral-900 dark:text-neutral-100">
-          {world.title}
-        </h2>
-        <div className="mt-2 flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
-          {world.user.avatarUrl && (
-            <Image
-              src={world.user.avatarUrl}
-              width={20}
-              height={20}
-              className="rounded-full"
-              alt=""
-            />
-          )}
-          <span>{world.user.username}</span>
-          <span aria-hidden>·</span>
-          <span>
-            {world.likesCount}{" "}
-            {world.likesCount === 1 ? "like" : "likes"}
+    <div>
+      {/* Repost attribution — shown above the card when a followed creator reposted this world */}
+      {world.repostedBy && (
+        <div className="mb-1 text-xs text-neutral-500 dark:text-neutral-400">
+          Reposted by{" "}
+          <span className="font-medium text-neutral-700 dark:text-neutral-300">
+            @{world.repostedBy}
           </span>
         </div>
-      </div>
-    </Link>
+      )}
+      <Link
+        href={`/world/${world.id}`}
+        className="group block overflow-hidden rounded-lg border border-neutral-200 transition hover:border-neutral-400 dark:border-neutral-800 dark:hover:border-neutral-600"
+      >
+        {/* Media area — thumbnail by default; swaps to video preview on hover */}
+        <WorldCardMedia
+          thumbnailUrl={thumbnailUrl}
+          videoUrl={videoUrl}
+          alt={world.title}
+          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, (max-width: 1280px) 33vw, 25vw"
+          likesCount={world.likesCount}
+        />
+
+        {/* Card body */}
+        <div className="p-3">
+          <h2 className="line-clamp-2 text-sm font-medium text-neutral-900 dark:text-neutral-100">
+            {world.title}
+          </h2>
+          <div className="mt-2 flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+            {world.user.avatarUrl && (
+              <Image
+                src={world.user.avatarUrl}
+                width={20}
+                height={20}
+                className="rounded-full"
+                alt=""
+              />
+            )}
+            <span>{world.user.username}</span>
+            <span aria-hidden>·</span>
+            <span>
+              {world.likesCount}{" "}
+              {world.likesCount === 1 ? "like" : "likes"}
+            </span>
+          </div>
+        </div>
+      </Link>
+    </div>
   );
 }
 

@@ -2,9 +2,15 @@ import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import Image from "next/image";
 import { auth } from "@clerk/nextjs/server";
+import { eq } from "drizzle-orm";
+import { db } from "@/db";
+import { users } from "@/db/schema";
 import { WorldViewerClient } from "./WorldViewerClient";
 import MediaCarousel from "@/components/media-carousel/MediaCarousel";
 import { LikeButton } from "@/components/like-button/LikeButton";
+import { RepostButton } from "@/components/repost-button/RepostButton";
+import { ShareButton } from "@/components/share-button/ShareButton";
+import CommentsSection from "@/components/comments-section/CommentsSection";
 
 export default async function WorldPage(
   { params }: { params: Promise<{ id: string }> }
@@ -36,6 +42,18 @@ export default async function WorldPage(
   }
   const world = await res.json();
   const signedIn = !!userId;
+
+  // Resolve the current visitor's DB user id (needed by CommentsSection for
+  // the "can delete?" check).  Null when signed out or no DB row yet.
+  let currentUserDbId: string | null = null;
+  if (userId) {
+    const [dbUser] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.clerkId, userId))
+      .limit(1);
+    currentUserDbId = dbUser?.id ?? null;
+  }
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8">
@@ -88,17 +106,32 @@ export default async function WorldPage(
       )}
 
       {/* Stat row */}
-      <div className="mt-6 flex items-center gap-4">
+      <div className="mt-6 flex flex-wrap items-center gap-3">
         <LikeButton
           worldId={world.id}
           initialLiked={world.isLikedByCurrentUser ?? false}
           initialLikesCount={world.likesCount}
           signedIn={signedIn}
         />
-        <span className="text-sm text-neutral-600 dark:text-neutral-400">
+        <RepostButton
+          worldId={world.id}
+          initialReposted={world.isRepostedByCurrentUser ?? false}
+          signedIn={signedIn}
+        />
+        <ShareButton title={world.title} />
+        <span className="text-sm text-neutral-500 dark:text-neutral-500">
           {world.views} {world.views === 1 ? "view" : "views"}
         </span>
       </div>
+
+      {/* Comments section */}
+      <CommentsSection
+        worldId={world.id}
+        worldOwnerId={world.author.id}
+        initialCommentsCount={world.commentsCount}
+        signedIn={signedIn}
+        currentUserDbId={currentUserDbId}
+      />
     </main>
   );
 }

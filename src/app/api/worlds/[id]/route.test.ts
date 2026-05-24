@@ -4,22 +4,36 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // Mock hoisting
 // ---------------------------------------------------------------------------
 
-const { mockFindFirst, mockAuth, mockSelectFrom } = vi.hoisted(() => ({
+const { mockFindFirst, mockAuth, mockSelectFrom, mockCountQuery } = vi.hoisted(() => ({
   mockFindFirst: vi.fn(),
   mockAuth: vi.fn(),
   // mockSelectFrom covers db.select().from().where().limit() chains used for
-  // the user-lookup and like-lookup in the opportunistic auth path.
+  // the user-lookup, like-lookup, and repost-lookup in the opportunistic auth path.
   mockSelectFrom: vi.fn(),
+  // mockCountQuery covers db.select({ count: count() }).from().where() —
+  // the commentsCount aggregate which is awaited directly (no .limit()).
+  mockCountQuery: vi.fn(),
 }));
 
 // Mock @/db — the GET handler uses:
 //   db.query.worlds.findFirst  (relational query for world + author + media)
-//   db.select().from().where().limit()  (user lookup, like lookup)
+//   db.select({ count }).from().where()           (commentsCount aggregate)
+//   db.select().from().where().limit()            (user lookup, like lookup, repost lookup)
 vi.mock("@/db", () => {
-  const chainable = {
-    from: () => chainable,
-    where: () => chainable,
-    limit: (..._args: unknown[]) => mockSelectFrom(),
+  // The chainable object is shared for all db.select() chains.
+  // where() returns a thenable-chainable so it can be both:
+  //   - awaited directly (commentsCount path: .from().where())
+  //   - chained further with .limit() (user/like/repost paths)
+  const chainable: Record<string, unknown> = {};
+  chainable["from"] = () => chainable;
+  chainable["where"] = () => {
+    // Returns an object that is awaitable AND has a .limit() method.
+    const whereResult: Record<string, unknown> = {
+      limit: (..._args: unknown[]) => mockSelectFrom(),
+      then: (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) =>
+        Promise.resolve(mockCountQuery()).then(resolve, reject),
+    };
+    return whereResult;
   };
   return {
     db: {
@@ -104,6 +118,7 @@ describe("GET /api/worlds/[id] — UUID validation", () => {
     // UUID-validation tests never reach auth — but auth is still called
     // after the world is found, so set a safe default for completeness.
     mockAuth.mockResolvedValue({ userId: null });
+    mockCountQuery.mockResolvedValue([{ count: 0 }]);
   });
 
   it("returns 400 for a non-UUID id", async () => {
@@ -146,6 +161,7 @@ describe("GET /api/worlds/[id] — Not found", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mockAuth.mockResolvedValue({ userId: null });
+    mockCountQuery.mockResolvedValue([{ count: 0 }]);
   });
 
   it("returns 404 when db returns undefined", async () => {
@@ -183,6 +199,8 @@ describe("GET /api/worlds/[id] — Success", () => {
     mockFindFirst.mockResolvedValue(DB_WORLD_ROW);
     // Default: signed-out visitor.
     mockAuth.mockResolvedValue({ userId: null });
+    // Default: 0 comments.
+    mockCountQuery.mockResolvedValue([{ count: 0 }]);
   });
 
   it("returns 200 for a valid UUID that exists", async () => {
@@ -308,9 +326,11 @@ describe("GET /api/worlds/[id] — Success", () => {
       "likesCount",
       "views",
       "createdAt",
+      "commentsCount",
       "author",
       "media",
       "isLikedByCurrentUser",
+      "isRepostedByCurrentUser",
     ]);
     const actualKeys = new Set(Object.keys(body));
 
@@ -326,13 +346,14 @@ describe("GET /api/worlds/[id] — Success", () => {
     expect(body.isLikedByCurrentUser).toBe(false);
   });
 
-  it("does not query the likes table when signed-out", async () => {
-    // mockAuth returns { userId: null } — no DB calls after findFirst
+  it("does not query the likes or reposts tables when signed-out", async () => {
+    // mockAuth returns { userId: null } — auth-gated DB chains must not fire.
     const [req, ctx] = makeRequest(WORLD_ID);
     await GET(req, ctx);
 
-    // mockSelectFrom covers the chained .limit() call on both user-lookup and
-    // like-lookup chains. For a signed-out user it must never be called.
+    // mockSelectFrom covers the chained .limit() call on user-lookup,
+    // like-lookup, and repost-lookup chains. For a signed-out user none of
+    // those chains run (commentsCount uses mockCountQuery, not mockSelectFrom).
     expect(mockSelectFrom).not.toHaveBeenCalled();
   });
 });
@@ -346,13 +367,15 @@ describe("GET /api/worlds/[id] — isLikedByCurrentUser (signed-in)", () => {
     vi.resetAllMocks();
     mockFindFirst.mockResolvedValue(DB_WORLD_ROW);
     mockAuth.mockResolvedValue({ userId: "clerk_user_abc" });
+    mockCountQuery.mockResolvedValue([{ count: 0 }]);
   });
 
   it("returns isLikedByCurrentUser: true when the signed-in user has liked the world", async () => {
-    // First select() chain resolves the DB user; second resolves the like row.
+    // select chains: user lookup, like row exists, repost lookup (not reposted).
     mockSelectFrom
-      .mockResolvedValueOnce([DB_CURRENT_USER])  // user lookup
-      .mockResolvedValueOnce([{ userId: DB_CURRENT_USER.id }]);  // like exists
+      .mockResolvedValueOnce([DB_CURRENT_USER])            // user lookup
+      .mockResolvedValueOnce([{ userId: DB_CURRENT_USER.id }])  // like exists
+      .mockResolvedValueOnce([]);                          // no repost row
 
     const [req, ctx] = makeRequest(WORLD_ID);
     const res = await GET(req, ctx);
@@ -363,10 +386,11 @@ describe("GET /api/worlds/[id] — isLikedByCurrentUser (signed-in)", () => {
   });
 
   it("returns isLikedByCurrentUser: false when the signed-in user has NOT liked the world", async () => {
-    // User found but no like row.
+    // User found but no like row; also no repost.
     mockSelectFrom
       .mockResolvedValueOnce([DB_CURRENT_USER])  // user lookup
-      .mockResolvedValueOnce([]);                 // no like row
+      .mockResolvedValueOnce([])                 // no like row
+      .mockResolvedValueOnce([]);                // no repost row
 
     const [req, ctx] = makeRequest(WORLD_ID);
     const res = await GET(req, ctx);
@@ -386,7 +410,120 @@ describe("GET /api/worlds/[id] — isLikedByCurrentUser (signed-in)", () => {
 
     expect(res.status).toBe(200);
     expect(body.isLikedByCurrentUser).toBe(false);
-    // Like-lookup must NOT be called — only one select chain fires.
+    // Like-lookup and repost-lookup must NOT be called — only one select chain fires.
+    expect(mockSelectFrom).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Block E — commentsCount
+// ---------------------------------------------------------------------------
+
+describe("GET /api/worlds/[id] — commentsCount", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mockFindFirst.mockResolvedValue(DB_WORLD_ROW);
+    mockAuth.mockResolvedValue({ userId: null });
+  });
+
+  it("returns commentsCount: 0 when there are no comments", async () => {
+    mockCountQuery.mockResolvedValue([{ count: 0 }]);
+
+    const [req, ctx] = makeRequest(WORLD_ID);
+    const res = await GET(req, ctx);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.commentsCount).toBe(0);
+  });
+
+  it("returns commentsCount reflecting the actual DB aggregate", async () => {
+    mockCountQuery.mockResolvedValue([{ count: 17 }]);
+
+    const [req, ctx] = makeRequest(WORLD_ID);
+    const res = await GET(req, ctx);
+    const body = await res.json();
+
+    expect(body.commentsCount).toBe(17);
+  });
+
+  it("returns commentsCount for signed-out users (always public)", async () => {
+    mockCountQuery.mockResolvedValue([{ count: 5 }]);
+
+    const [req, ctx] = makeRequest(WORLD_ID);
+    const res = await GET(req, ctx);
+    const body = await res.json();
+
+    expect(body.commentsCount).toBe(5);
+    // Auth-gated select chains must not have fired for a signed-out user.
+    expect(mockSelectFrom).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Block F — isRepostedByCurrentUser (signed-in paths)
+// ---------------------------------------------------------------------------
+
+describe("GET /api/worlds/[id] — isRepostedByCurrentUser (signed-in)", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mockFindFirst.mockResolvedValue(DB_WORLD_ROW);
+    mockAuth.mockResolvedValue({ userId: "clerk_user_abc" });
+    mockCountQuery.mockResolvedValue([{ count: 0 }]);
+  });
+
+  it("returns isRepostedByCurrentUser: true when the signed-in user has reposted the world", async () => {
+    mockSelectFrom
+      .mockResolvedValueOnce([DB_CURRENT_USER])            // user lookup
+      .mockResolvedValueOnce([])                           // no like row
+      .mockResolvedValueOnce([{ userId: DB_CURRENT_USER.id }]);  // repost exists
+
+    const [req, ctx] = makeRequest(WORLD_ID);
+    const res = await GET(req, ctx);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.isRepostedByCurrentUser).toBe(true);
+  });
+
+  it("returns isRepostedByCurrentUser: false when the signed-in user has NOT reposted the world", async () => {
+    mockSelectFrom
+      .mockResolvedValueOnce([DB_CURRENT_USER])  // user lookup
+      .mockResolvedValueOnce([])                 // no like row
+      .mockResolvedValueOnce([]);                // no repost row
+
+    const [req, ctx] = makeRequest(WORLD_ID);
+    const res = await GET(req, ctx);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.isRepostedByCurrentUser).toBe(false);
+  });
+
+  it("returns isRepostedByCurrentUser: false for signed-out users without querying reposts table", async () => {
+    mockAuth.mockResolvedValue({ userId: null });
+    mockCountQuery.mockResolvedValue([{ count: 0 }]);
+
+    const [req, ctx] = makeRequest(WORLD_ID);
+    const res = await GET(req, ctx);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.isRepostedByCurrentUser).toBe(false);
+    // No auth-gated select chains should fire for a signed-out user.
+    expect(mockSelectFrom).not.toHaveBeenCalled();
+  });
+
+  it("returns isRepostedByCurrentUser: false when signed-in user has no DB row yet", async () => {
+    mockSelectFrom.mockResolvedValueOnce([]);  // user lookup returns empty
+
+    const [req, ctx] = makeRequest(WORLD_ID);
+    const res = await GET(req, ctx);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.isRepostedByCurrentUser).toBe(false);
+    // Repost-lookup must NOT be called — bail out after missing user row.
     expect(mockSelectFrom).toHaveBeenCalledTimes(1);
   });
 });

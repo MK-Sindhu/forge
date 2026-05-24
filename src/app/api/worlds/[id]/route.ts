@@ -4,8 +4,10 @@
  * Public read — no auth required. Returns a single world with its author
  * (id, username, avatarUrl only — no PII) and its ordered media gallery.
  *
- * Opportunistically checks whether the signed-in user has liked this world.
- * Signed-out requests always get isLikedByCurrentUser: false (no DB hit).
+ * Always returns commentsCount (public aggregate — no auth required).
+ * Opportunistically checks whether the signed-in user has liked or reposted
+ * this world. Signed-out requests always get isLikedByCurrentUser: false and
+ * isRepostedByCurrentUser: false (no extra DB hit).
  * We intentionally do NOT call getOrCreateDbUser here — a GET must not write.
  *
  * TODO (Slice 7): increment views counter on read — intentionally omitted here
@@ -14,10 +16,10 @@
 
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { eq, and } from "drizzle-orm";
+import { eq, and, count } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { worlds, likes, users } from "@/db/schema";
+import { worlds, likes, users, comments, reposts } from "@/db/schema";
 
 // ---------------------------------------------------------------------------
 // Param validation
@@ -66,8 +68,15 @@ export async function GET(
     return NextResponse.json({ error: "World not found" }, { status: 404 });
   }
 
-  // --- 4. Opportunistic like check (read-only — no DB write on GET) --------
+  // --- 4. commentsCount — always returned, not auth-gated -----------------
+  const [{ count: commentsCount }] = await db
+    .select({ count: count() })
+    .from(comments)
+    .where(eq(comments.worldId, parsed.data));
+
+  // --- 5. Opportunistic like + repost checks (read-only — no DB write on GET) ---
   let isLikedByCurrentUser = false;
+  let isRepostedByCurrentUser = false;
 
   const { userId: clerkUserId } = await auth();
   if (clerkUserId) {
@@ -86,10 +95,18 @@ export async function GET(
         .limit(1);
 
       isLikedByCurrentUser = !!likeRow;
+
+      const [repostRow] = await db
+        .select({ userId: reposts.userId })
+        .from(reposts)
+        .where(and(eq(reposts.userId, dbUser.id), eq(reposts.worldId, parsed.data)))
+        .limit(1);
+
+      isRepostedByCurrentUser = !!repostRow;
     }
   }
 
-  // --- 5. Shape the response — only expose safe fields ---------------------
+  // --- 6. Shape the response — only expose safe fields ---------------------
   // row.user is guaranteed non-null because userId is a NOT NULL FK, but
   // TypeScript infers it as possibly undefined from the relational query.
   const author = row.user!;
@@ -103,6 +120,7 @@ export async function GET(
     likesCount: row.likesCount,
     views: row.views,
     createdAt: row.createdAt.toISOString(),
+    commentsCount,
     author: {
       id: author.id,
       username: author.username,
@@ -116,5 +134,6 @@ export async function GET(
       position: m.position,
     })),
     isLikedByCurrentUser,
+    isRepostedByCurrentUser,
   });
 }
