@@ -64,6 +64,18 @@ export default async function RootLayout({
                 FORGE
               </Link>
 
+              {/* Public search form — hidden on mobile (no space in the narrow nav) */}
+              <form action="/search" method="get" className="hidden md:block flex-1 max-w-md mx-4">
+                <label htmlFor="header-search" className="sr-only">Search worlds</label>
+                <input
+                  id="header-search"
+                  name="q"
+                  type="search"
+                  placeholder="Search worlds…"
+                  className="block w-full rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm placeholder-neutral-400 focus:border-neutral-900 focus:outline-none focus:ring-1 focus:ring-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder-neutral-500 dark:focus:border-neutral-400 dark:focus:ring-neutral-400"
+                />
+              </form>
+
               {/* Right side — auth-state-aware actions */}
               <div className="flex items-center gap-3">
                 {/* Signed-in state */}

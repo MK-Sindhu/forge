@@ -84,9 +84,12 @@ Current migrations:
 0004_slice5_world_updates.sql
 0005_slice6_moderation.sql
 0006_slice7_tags.sql
+0007_slice7_search.sql   ← adds worlds.search_vector tsvector + trigger functions + GIN index
 ```
 
-Next: `0007_slice7_search.sql`, `0008_slice7_views.sql`, `0009_slice7_notifications.sql`.
+Next: `0008_slice7_views.sql`, `0009_slice7_notifications.sql`.
+
+**Note on `0007_slice7_search.sql`:** This migration defines three Postgres functions (`worlds_search_vector_build`, `worlds_search_vector_trigger_fn`, `world_tags_search_vector_trigger_fn`) and two triggers (`worlds_search_vector_trigger` BEFORE on `worlds`, `world_tags_search_vector_trigger` AFTER on `world_tags`). When applying to production, all three functions and both triggers must land cleanly — verify with `\df` and `\dT` in psql or a `SELECT proname FROM pg_proc WHERE proname LIKE 'worlds_%';` query after the migration runs.
 
 ## Object Storage (R2)
 

@@ -80,6 +80,9 @@ Accepted characters: `[a-z0-9_-]` (regex validated in `POST /api/worlds`). Emoji
 ### `world_tags`
 Slice 7.1. Join table between `worlds` and `tags`. Composite PK on `(world_id, tag_id)`. Both FKs are CASCADE DELETE. Index `world_tags_tag_id_idx` on `tag_id` for "all worlds with tag X" queries. `onConflictDoNothing` used on insert (idempotent tag assignment).
 
+### `worlds.search_vector` (DB-only, not in Drizzle schema)
+Slice 7.2. `tsvector` column added directly to the `worlds` table via migration `0007_slice7_search.sql`. **This column is intentionally absent from `src/db/schema.ts`.** It is Postgres-managed — triggers populate and maintain it automatically. Application code never writes to it directly. Drizzle queries against `worlds` simply don't see this column (no TS errors, no runtime errors). Queries that need to search use raw `sql` template literals: `sql\`search_vector @@ websearch_to_tsquery('english', ${q})\``.
+
 ## Auth Helpers (`src/lib/users.ts`)
 
 Three helpers, used everywhere. Pick the right one for the situation.
@@ -179,6 +182,61 @@ Phase 2 introduces a **scene graph API** as the canonical mutation surface for w
 - Audit log — who changed what when
 
 See `ROADMAP.md` Phase 2 for the full design discussion.
+
+## Search (Postgres FTS) Pattern (Slice 7.2)
+
+FORGE uses Postgres native full-text search (`tsvector` + GIN index) for world search. No external search engine is involved.
+
+### Why `search_vector` is not in `schema.ts`
+
+The column is entirely Postgres-managed. Storing it in Drizzle would mean Drizzle could accidentally overwrite it on an ORM `update(worlds).set({...})` call that doesn't include it (it would be left at the old value if included, or Drizzle would try to write NULL). Keeping it out of the schema is the safest option — triggers own the column exclusively.
+
+### Trigger design
+
+Two DB functions + two triggers keep `search_vector` current at all times:
+
+**`worlds_search_vector_build(world_id_in uuid) → tsvector`** — helper function called by both triggers. Queries the `worlds` and `world_tags`/`tags` tables to build:
+
+```
+setweight(to_tsvector('english', title),       'A')
+|| setweight(to_tsvector('english', description), 'B')
+|| setweight(to_tsvector('english', tag_names),   'A')
+```
+
+Weight A = title + tags (highest relevance). Weight B = description.
+
+**`worlds_search_vector_trigger`** — BEFORE INSERT OR UPDATE OF title, description ON `worlds`. Sets `NEW.search_vector = worlds_search_vector_build(NEW.id)`. Fires on every world creation and every title/description edit.
+
+**`world_tags_search_vector_trigger`** — AFTER INSERT OR DELETE ON `world_tags`. Reads `COALESCE(NEW.world_id, OLD.world_id)` to get the affected world, then runs `UPDATE worlds SET search_vector = worlds_search_vector_build(target_world_id) WHERE id = target_world_id`. This fires the BEFORE trigger on `worlds` which overwrites the vector with the now-current tag list.
+
+### Insert ordering note
+
+When a world is first created (`POST /api/worlds`):
+1. `worlds` row is inserted → BEFORE trigger fires → vector built from title/description (tags empty at this point).
+2. `world_tags` rows are inserted → AFTER trigger fires for each → vector rebuilt with the correct tag list.
+
+Final state is always correct. The intermediate state (no tags in vector) is never visible to users because the transaction commits atomically.
+
+### GIN index
+
+`CREATE INDEX worlds_search_vector_gin ON worlds USING gin(search_vector)` — standard GIN index for `@@` operator performance.
+
+### Querying
+
+Search results pages use direct DB queries with raw `sql` template literals (no API route):
+
+```ts
+// q-only search
+db.query.worlds.findMany({
+  where: sql`search_vector @@ websearch_to_tsquery('english', ${q})`,
+  orderBy: sql`ts_rank(search_vector, websearch_to_tsquery('english', ${q})) DESC, created_at DESC`,
+  limit: 50,
+})
+```
+
+### Backfill
+
+Migration includes `UPDATE worlds SET title = title;` to fire the BEFORE trigger on all existing rows. This populates `search_vector` for all worlds that existed before the migration.
 
 ## Tag Normalization Pattern (Slice 7.1)
 

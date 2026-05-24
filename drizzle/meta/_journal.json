@@ -50,6 +50,13 @@
       "when": 1779556000000,
       "tag": "0006_slice7_tags",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1779560000000,
+      "tag": "0007_slice7_search",
+      "breakpoints": true
     }
   ]
 }

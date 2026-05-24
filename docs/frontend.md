@@ -63,6 +63,7 @@ src/
 | Route | File | Server/Client | Purpose | Slice |
 |---|---|---|---|---|
 | `/` | `src/app/page.tsx` | Server | Feed (Recent / Following tabs via `?tab=`). Cards show up to 3 tag chips + `+N more` overflow. | 1, 3, 4, 5, 7.1 |
+| `/search` | `src/app/search/page.tsx` | Server (public) | Full-text search results. Reads `?q=` and/or `?tag=`. Three branches: empty state (neither), FTS query (`q` only), tag filter (`tag` only), intersection (both). Direct DB query — no API route. Cap 50 results. `search_vector` is Postgres-managed (trigger-populated, not in Drizzle schema). | 7.2 |
 | `/world/[id]` | `src/app/world/[id]/page.tsx` | Server | World viewer page (3D + metadata + carousel + updates + comments + actions). Tag chips row below title. | 1, 2, 3, 4, 5, 7.1 |
 | `/profile/[username]` | `src/app/profile/[username]/page.tsx` | Server | Profile (avatar, follower/following counts, world grid). Cards show up to 3 tag chips + `+N more` overflow. | 1, 3, 7.1 |
 | `/upload` | `src/app/upload/page.tsx` + `UploadForm.tsx` | Client (`UploadForm`) | Multi-step upload form | 1, 2 |
@@ -161,8 +162,11 @@ Shipped in 7.1:
 - Tags input in UploadForm metadata step — tokenize on comma/Enter, chip preview with remove buttons.
 - Tag chips on world page (all tags, below title), feed cards (≤3 + overflow), profile cards (≤3 + overflow).
 
+Shipped in 7.2:
+- Public search `<form action="/search" method="get">` in the root `layout.tsx` header. Placed between the FORGE wordmark and the right-side auth actions. `hidden md:block` keeps it off mobile. NOT inside a `<Show>` block — publicly visible.
+- `/search/page.tsx` — server component (no `"use client"`). Three behavior branches: (1) neither `q` nor `tag` → empty state; (2) `q` only → Postgres FTS via `search_vector @@ websearch_to_tsquery('english', ${q})`, ranked by `ts_rank` then `createdAt`; (3) `tag` only → `inArray` on tag subquery; (4) both → `and()` intersection of FTS + tag filter. Cap 50 results. Cards duplicate `FeedCard` markup (extract deferred until a third caller). `search_vector` is Postgres-managed and not in Drizzle schema — raw `sql\`\`` template tags used for FTS clauses.
+
 Still to come:
-- Search bar in `Header` → `/search?q=` page (7.2)
 - "Trending" tab on `/` (third tab alongside Recent / Following) (7.4)
 - View count display on world cards + world page (7.3)
 - Bell icon in `Header` with unread count badge (7.5)
