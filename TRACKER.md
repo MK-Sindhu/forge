@@ -14,8 +14,8 @@
 | Current slice | None — Slice 7 verified in prod 2026-05-25; launch ops remaining |
 | In-flight | Launch ops (real Terms page, real DMCA email, unsuspend button, onboarding, seed worlds, analytics) |
 | Tests | 417 across 21 test files |
-| Commits on main | 21 (Slice 7 = 5 commits da31b12 → 7.5 head) |
-| Latest commit | (this commit — Slice 7.5 notifications + cross-cutting closeout) |
+| Commits on main | 25 (Slice 7 = 5 sub-slice commits da31b12 → e18dd6b · 2 layout hotfixes dd8c8f6 + 065d572 · status flip 218992f) |
+| Latest commit | `218992f` — docs: Slice 7 verified in prod 2026-05-25 — all 5 sub-slices ✅ |
 | Branch state | `main` clean, in sync with `origin/main` |
 | Production | https://forge-black-eta.vercel.app |
 | DB | Neon Postgres — 12 tables, 9 migrations applied (0008 + 0009 = view tracking + notifications) |
@@ -176,20 +176,16 @@ Things that work but should be cleaned up before or shortly after launch.
 | 4 | Slices 2, 4, 5 deployed but not yet prod-smoke-tested (Slices 6 + 7 verified) | Medium | Production |
 | 5 | `dbPool` (WebSocket Drizzle client) doesn't have schema wired — `db.query.*` only works on `db` (HTTP). If a route needs transactions AND relational queries, fix this. | Low | `src/db/*.ts` |
 
-## 5. Test Coverage by Slice
+## 5. Test Coverage
 
-| Slice | Test files added | Notes |
-|---|---|---|
-| 0 | (infra only) | — |
-| 1 | <!-- TODO: fill in after audit --> | — |
-| 2 | <!-- TODO --> | — |
-| 3 | <!-- TODO --> | — |
-| 4 | <!-- TODO --> | — |
-| 5 | <!-- TODO --> | — |
-| 6 | <!-- TODO --> | — |
-| **Total** | **16 test files / 311 tests** | All passing on main |
+| Metric | Value |
+|---|---|
+| **Total** | **21 test files / 417 tests** — all passing on main |
+| Per-slice inventory | See `docs/testing.md` "Test Inventory by Slice" — owned + maintained by `test-engineer` |
+| 3D / R3F component tests | None (deferred to Phase 2 per `docs/testing.md`) |
+| E2E (Playwright/Cypress) | None (unit + integration only) |
 
-> Have test-engineer fill the per-slice rows during the Slice 7 planning session.
+> The per-slice breakdown lives in `docs/testing.md` to avoid drift between two tables. forge-lead refreshes the total here after each slice ships.
 
 ## 6. Verification Commands
 

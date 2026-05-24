@@ -2,8 +2,8 @@
 
 > The strategic companion to `PROJECT.md`. PROJECT.md tracks the current slice. This document tracks the arc.
 
-**Status:** Phase 0 complete. Phase 1 in progress (Slice 7).
-**Last updated:** 2026-05-23
+**Status:** Phase 0 complete. Phase 1 in progress — Slice 7 (technical half) ✅ verified in prod 2026-05-25; launch ops (operational half) ⬜ next.
+**Last updated:** 2026-05-25
 
 ---
 
