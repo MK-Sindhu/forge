@@ -13,6 +13,7 @@ import { ShareButton } from "@/components/share-button/ShareButton";
 import { ReportButton } from "@/components/report-button/ReportButton";
 import CommentsSection from "@/components/comments-section/CommentsSection";
 import UpdatesTimeline from "@/components/updates-timeline/UpdatesTimeline";
+import { TagChip } from "@/components/tag-chip/TagChip";
 
 export default async function WorldPage(
   { params }: { params: Promise<{ id: string }> }
@@ -86,6 +87,13 @@ export default async function WorldPage(
             {new Date(world.createdAt).toLocaleDateString()}
           </time>
         </div>
+        {world.tags && world.tags.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {(world.tags as { name: string }[]).map((t) => (
+              <TagChip key={t.name} name={t.name} />
+            ))}
+          </div>
+        )}
       </header>
 
       {/* Media carousel — only shown when there are 2+ media items (thumbnail + extras) */}

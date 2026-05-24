@@ -92,6 +92,7 @@ const DB_WORLD_ROW = {
       position: 1,
     },
   ],
+  tags: [],
 };
 
 // DB user row returned by the user-lookup chain (signed-in path).
@@ -329,6 +330,7 @@ describe("GET /api/worlds/[id] — Success", () => {
       "commentsCount",
       "author",
       "media",
+      "tags",
       "isLikedByCurrentUser",
       "isRepostedByCurrentUser",
     ]);

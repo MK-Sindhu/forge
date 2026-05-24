@@ -19,6 +19,7 @@ const {
   mockTransaction,
   mockTxInsert,
   mockTxUpdate,
+  mockTxSelect,
 } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   // External boundary: currentUser() fetches the full Clerk user object.
@@ -41,6 +42,10 @@ const {
   mockTxInsert: vi.fn(),
   // Spy into tx.update(table).set(values).where(...) calls inside the transaction.
   mockTxUpdate: vi.fn(),
+  // Spy into tx.select(...).from(...).where(...) calls inside the transaction.
+  // Used by the tag re-select step (SELECT id, name FROM tags WHERE name = ANY($1)).
+  // By default returns [] so tests that don't care about tags pass without noise.
+  mockTxSelect: vi.fn(),
 }));
 
 // Mock @clerk/nextjs/server — real Clerk calls require a live Clerk environment
@@ -88,7 +93,7 @@ vi.mock("@/db", () => ({
 import { POST } from "./route";
 // Import real table refs — used as identity markers in toHaveBeenCalledWith assertions.
 // These are pure JS objects; importing them does NOT trigger a DB connection.
-import { worlds, worldMedia, users } from "@/db/schema";
+import { worlds, worldMedia, users, tags, worldTags } from "@/db/schema";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -145,6 +150,7 @@ type ValidBodyShape = {
   glbKey: string;
   glbSizeBytes: number;
   media: MediaItem[];
+  tags?: string[];
 };
 
 function makeValidBody(overrides: Partial<ValidBodyShape> = {}): ValidBodyShape {
@@ -224,15 +230,27 @@ function setupHappyPath(userRow = DB_USER_NO_TOS) {
     (bucket: string, key: string) => `https://cdn.example.com/${bucket}/${key}`
   );
 
+  // Default tag re-select returns an empty array. Individual tag tests override
+  // this to control which tag rows are "found" after onConflictDoNothing.
+  mockTxSelect.mockResolvedValue([]);
+
   // Default transaction: runs the callback with a fake tx object that routes
   // insert/update calls into mockTxInsert / mockTxUpdate so tests can assert them.
+  // The select chain is added for the tag re-select step:
+  //   tx.select({ id, name }).from(tags).where(inArray(tags.name, [...]))
+  // mockTxSelect is called with the where-clause argument (the inArray value)
+  // so tests can assert which names were queried.
   mockTransaction.mockImplementation(
     async (callback: (tx: unknown) => Promise<unknown>) => {
       const fakeTx = {
         insert: (table: unknown) => ({
           values: (values: unknown) => {
             mockTxInsert(table, values);
-            return Promise.resolve();
+            // Return an object with onConflictDoNothing so the tags insert chain
+            // tx.insert(tags).values(...).onConflictDoNothing() resolves.
+            return {
+              onConflictDoNothing: () => Promise.resolve(),
+            };
           },
         }),
         update: (table: unknown) => ({
@@ -241,6 +259,13 @@ function setupHappyPath(userRow = DB_USER_NO_TOS) {
               mockTxUpdate(table, values);
               return Promise.resolve();
             },
+          }),
+        }),
+        // Tag re-select chain: tx.select({...}).from(tags).where(inArray(...))
+        // The terminal .where() call invokes mockTxSelect and returns its result.
+        select: (_columns: unknown) => ({
+          from: (_table: unknown) => ({
+            where: (whereArg: unknown) => mockTxSelect(whereArg),
           }),
         }),
       };
@@ -295,13 +320,16 @@ describe("POST /api/worlds — Auth", () => {
       (bucket: string, key: string) => `https://cdn.example.com/${bucket}/${key}`
     );
     // Transaction must succeed for the world to be created.
+    // Mirrors the fakeTx in setupHappyPath (including onConflictDoNothing + select).
     mockTransaction.mockImplementation(
       async (callback: (tx: unknown) => Promise<unknown>) => {
         const fakeTx = {
           insert: (table: unknown) => ({
             values: (values: unknown) => {
               mockTxInsert(table, values);
-              return Promise.resolve();
+              return {
+                onConflictDoNothing: () => Promise.resolve(),
+              };
             },
           }),
           update: (table: unknown) => ({
@@ -310,6 +338,11 @@ describe("POST /api/worlds — Auth", () => {
                 mockTxUpdate(table, values);
                 return Promise.resolve();
               },
+            }),
+          }),
+          select: (_columns: unknown) => ({
+            from: (_table: unknown) => ({
+              where: (_whereArg: unknown) => Promise.resolve([]),
             }),
           }),
         };
@@ -1002,5 +1035,280 @@ describe("POST /api/worlds — Per-item HEAD failure and key prefix checks", () 
 
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ error: expect.any(String) });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Block I — Tags (Slice 7.1)
+//
+// Tests for tag normalization, validation, and transactional persistence.
+// Spec source: plan-slice-7-hazy-crystal.md §"Sub-slice 7.1 — Tags > Tests"
+//
+// Mock strategy:
+//   - mockTxInsert spies on tx.insert(table).values(values) — asserted with
+//     the imported `tags` / `worldTags` table refs as identity markers.
+//   - mockTxSelect (new in this block) is the terminal call of the tag re-select
+//     chain: tx.select({...}).from(tags).where(...) → returns tag rows.
+//     Set it to return synthetic tag rows so tx.insert(worldTags) receives them.
+// ---------------------------------------------------------------------------
+
+describe("POST /api/worlds — tags", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    setupHappyPath();
+  });
+
+  // -------------------------------------------------------------------------
+  // I-1. 3 valid tags persist
+  // -------------------------------------------------------------------------
+  it("inserts 3 tag rows and 3 world_tag rows when tags: ['alpha', 'beta', 'gamma']", async () => {
+    // The re-select returns synthetic tag rows — the route uses their IDs for
+    // the world_tags insert.
+    const tagRows = [
+      { id: "tag-id-alpha", name: "alpha" },
+      { id: "tag-id-beta",  name: "beta"  },
+      { id: "tag-id-gamma", name: "gamma" },
+    ];
+    mockTxSelect.mockResolvedValue(tagRows);
+
+    const res = await POST(makeRequest(makeValidBody({ tags: ["alpha", "beta", "gamma"] })));
+
+    expect(res.status).toBe(201);
+
+    // The tags insert must have been called with the 3 name objects.
+    expect(mockTxInsert).toHaveBeenCalledWith(
+      tags,
+      [{ name: "alpha" }, { name: "beta" }, { name: "gamma" }]
+    );
+
+    // The world_tags insert must have been called with exactly 3 rows.
+    expect(mockTxInsert).toHaveBeenCalledWith(
+      worldTags,
+      expect.arrayContaining([
+        expect.objectContaining({ worldId: VALID_WORLD_ID, tagId: "tag-id-alpha" }),
+        expect.objectContaining({ worldId: VALID_WORLD_ID, tagId: "tag-id-beta"  }),
+        expect.objectContaining({ worldId: VALID_WORLD_ID, tagId: "tag-id-gamma" }),
+      ])
+    );
+    const worldTagsCall = mockTxInsert.mock.calls.find(
+      ([table]: [unknown]) => table === worldTags
+    );
+    expect((worldTagsCall![1] as unknown[]).length).toBe(3);
+  });
+
+  // -------------------------------------------------------------------------
+  // I-2. Empty array allowed — no tag inserts, no world_tag inserts
+  // -------------------------------------------------------------------------
+  it("returns 201 and skips all tag inserts when tags: []", async () => {
+    const res = await POST(makeRequest(makeValidBody({ tags: [] })));
+
+    expect(res.status).toBe(201);
+
+    const tagsInsertCalls = mockTxInsert.mock.calls.filter(
+      ([table]: [unknown]) => table === tags
+    );
+    const worldTagsInsertCalls = mockTxInsert.mock.calls.filter(
+      ([table]: [unknown]) => table === worldTags
+    );
+
+    expect(tagsInsertCalls).toHaveLength(0);
+    expect(worldTagsInsertCalls).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // I-3. Tags field omitted entirely — behaves like empty array
+  // -------------------------------------------------------------------------
+  it("returns 201 and skips all tag inserts when tags field is omitted", async () => {
+    const { tags: _omit, ...bodyWithoutTags } = makeValidBody({ tags: [] });
+    const res = await POST(makeRequest(bodyWithoutTags));
+
+    expect(res.status).toBe(201);
+
+    const tagsInsertCalls = mockTxInsert.mock.calls.filter(
+      ([table]: [unknown]) => table === tags
+    );
+    const worldTagsInsertCalls = mockTxInsert.mock.calls.filter(
+      ([table]: [unknown]) => table === worldTags
+    );
+
+    expect(tagsInsertCalls).toHaveLength(0);
+    expect(worldTagsInsertCalls).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // I-4. More than 5 tags → 400
+  //
+  // Note: Zod's .max(5) on the tags array fires at parse time (step 2) and
+  // returns the generic "Invalid request body" error before the custom
+  // normalization check in step 3 is reached. The 400 status is the contract;
+  // the exact message is implementation detail.
+  // -------------------------------------------------------------------------
+  it("returns 400 when 6 tags are submitted", async () => {
+    const sixTags = ["aaa", "bbb", "ccc", "ddd", "eee", "fff"];
+
+    const res = await POST(makeRequest(makeValidBody({ tags: sixTags })));
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: expect.any(String) });
+  });
+
+  // -------------------------------------------------------------------------
+  // I-5. Mixed-case input is lowercased and trimmed before insert
+  // -------------------------------------------------------------------------
+  it("normalizes tags to lowercase + trimmed when input is ['Alpha', 'BETA', ' GamMa ']", async () => {
+    const tagRows = [
+      { id: "tag-id-alpha", name: "alpha" },
+      { id: "tag-id-beta",  name: "beta"  },
+      { id: "tag-id-gamma", name: "gamma" },
+    ];
+    mockTxSelect.mockResolvedValue(tagRows);
+
+    const res = await POST(makeRequest(makeValidBody({ tags: ["Alpha", "BETA", " GamMa "] })));
+
+    expect(res.status).toBe(201);
+
+    // The tags insert must use the normalized (lowercased + trimmed) names.
+    expect(mockTxInsert).toHaveBeenCalledWith(
+      tags,
+      [{ name: "alpha" }, { name: "beta" }, { name: "gamma" }]
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // I-6. Duplicate tag names deduplicate to a single row
+  // -------------------------------------------------------------------------
+  it("deduplicates ['foo', 'FOO', '  foo  '] to a single tags insert and single world_tags row", async () => {
+    const tagRows = [{ id: "tag-id-foo", name: "foo" }];
+    mockTxSelect.mockResolvedValue(tagRows);
+
+    const res = await POST(makeRequest(makeValidBody({ tags: ["foo", "FOO", "  foo  "] })));
+
+    expect(res.status).toBe(201);
+
+    // Tags insert: only one row.
+    expect(mockTxInsert).toHaveBeenCalledWith(
+      tags,
+      [{ name: "foo" }]
+    );
+
+    // world_tags insert: only one row.
+    const worldTagsCall = mockTxInsert.mock.calls.find(
+      ([table]: [unknown]) => table === worldTags
+    );
+    expect(worldTagsCall).toBeDefined();
+    expect((worldTagsCall![1] as unknown[]).length).toBe(1);
+    expect(worldTagsCall![1]).toEqual([
+      expect.objectContaining({ worldId: VALID_WORLD_ID, tagId: "tag-id-foo" }),
+    ]);
+  });
+
+  // -------------------------------------------------------------------------
+  // I-7. Tag exceeding 32 chars → 400
+  // -------------------------------------------------------------------------
+  it("returns 400 when a tag is 33 characters long", async () => {
+    const tooLong = "a".repeat(33);
+
+    const res = await POST(makeRequest(makeValidBody({ tags: [tooLong] })));
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: expect.any(String) });
+  });
+
+  // -------------------------------------------------------------------------
+  // I-8. Exactly 32 chars is allowed
+  // -------------------------------------------------------------------------
+  it("returns 201 when a tag is exactly 32 characters long", async () => {
+    const exactly32 = "a".repeat(32);
+    mockTxSelect.mockResolvedValue([{ id: "tag-id-long", name: exactly32 }]);
+
+    const res = await POST(makeRequest(makeValidBody({ tags: [exactly32] })));
+
+    expect(res.status).toBe(201);
+  });
+
+  // -------------------------------------------------------------------------
+  // I-9. Whitespace-only and empty strings are stripped; effectively empty → 201
+  // -------------------------------------------------------------------------
+  it("returns 201 with no inserts when tags: ['   ', ''] (strips to empty after trim)", async () => {
+    const res = await POST(makeRequest(makeValidBody({ tags: ["   ", ""] })));
+
+    expect(res.status).toBe(201);
+
+    const tagsInsertCalls = mockTxInsert.mock.calls.filter(
+      ([table]: [unknown]) => table === tags
+    );
+    const worldTagsInsertCalls = mockTxInsert.mock.calls.filter(
+      ([table]: [unknown]) => table === worldTags
+    );
+
+    expect(tagsInsertCalls).toHaveLength(0);
+    expect(worldTagsInsertCalls).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // I-10. Disallowed characters → 400
+  // These tags fail the /^[a-z0-9][a-z0-9_-]*$/ regex after normalization.
+  // -------------------------------------------------------------------------
+  it("returns 400 when a tag contains a space (e.g. 'with space')", async () => {
+    const res = await POST(makeRequest(makeValidBody({ tags: ["with space"] })));
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: expect.any(String) });
+  });
+
+  it("returns 400 when a tag starts with '#' (hash not allowed)", async () => {
+    const res = await POST(makeRequest(makeValidBody({ tags: ["#hash"] })));
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: expect.any(String) });
+  });
+
+  it("returns 400 when a tag starts with '-' (leading punctuation rejected)", async () => {
+    const res = await POST(makeRequest(makeValidBody({ tags: ["-leading"] })));
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: expect.any(String) });
+  });
+
+  it("returns 400 when a tag contains an emoji character (e.g. 'emoji😀')", async () => {
+    const res = await POST(makeRequest(makeValidBody({ tags: ["emoji😀"] })));
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: expect.any(String) });
+  });
+
+  it("returns 201 for 'UPPER' because it normalizes to 'upper' which is valid", async () => {
+    // After lowercasing, "UPPER" becomes "upper" — passes the regex.
+    mockTxSelect.mockResolvedValue([{ id: "tag-id-upper", name: "upper" }]);
+
+    const res = await POST(makeRequest(makeValidBody({ tags: ["UPPER"] })));
+
+    expect(res.status).toBe(201);
+
+    // The tags insert sees the lowercased value.
+    expect(mockTxInsert).toHaveBeenCalledWith(
+      tags,
+      [{ name: "upper" }]
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // I-11. Existing tag reused — world_tags insert uses the re-selected IDs
+  // -------------------------------------------------------------------------
+  it("uses IDs from the re-select for world_tags even when the tags insert was a no-op (conflict)", async () => {
+    // Simulate: the tags.name already exists in the DB. The onConflictDoNothing
+    // returns nothing, but the re-select returns the existing row with its real ID.
+    const existingTagRow = { id: "existing-tag-uuid-001", name: "rust" };
+    mockTxSelect.mockResolvedValue([existingTagRow]);
+
+    const res = await POST(makeRequest(makeValidBody({ tags: ["rust"] })));
+
+    expect(res.status).toBe(201);
+
+    // world_tags insert must reference the pre-existing tag's ID, not a new one.
+    expect(mockTxInsert).toHaveBeenCalledWith(
+      worldTags,
+      [expect.objectContaining({ worldId: VALID_WORLD_ID, tagId: "existing-tag-uuid-001" })]
+    );
   });
 });

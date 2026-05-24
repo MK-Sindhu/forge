@@ -22,7 +22,7 @@ This catches drift between what was intended (in the spec) and what was built. I
 ## Stack
 
 - **Framework:** Vitest (configured in `vitest.config.ts`)
-- **Current state:** 311 tests across 16 test files, all passing on `main`
+- **Current state:** 328 tests across 16 test files, all passing on `main`
 
 ## File Structure
 
@@ -58,6 +58,11 @@ All mocks are applied with `vi.hoisted()` + `vi.mock()` — no MSW, no testconta
 
 - **Database (`@/db`):** `vi.mock("@/db", () => ({ db: { ... }, dbPool: { ... } }))`. The mock replicates the Drizzle builder chain — `select().from().where().limit()` — with fine-grained `vi.fn()` spies at the terminal call so individual tests can control what the "query" returns and assert what values were passed. `dbPool.transaction()` receives the real callback and runs it against a fake `tx` object. No real Postgres connection is made. Reason: tests run without `DATABASE_URL`; a real Neon connection would require network + credentials unavailable in CI.
 
+  The `fakeTx` inside the `dbPool.transaction` mock also exposes:
+  - `tx.insert(table).values(values)` → records the call via `mockTxInsert(table, values)` and returns `{ onConflictDoNothing: () => Promise.resolve() }` to support the tags insert chain (`tx.insert(tags).values(...).onConflictDoNothing()`).
+  - `tx.select(columns).from(table).where(arg)` → calls `mockTxSelect(arg)` (returns `[]` by default; individual tests override with `mockTxSelect.mockResolvedValue([...])`) to support the tag re-select step.
+  - `tx.update(table).set(values).where()` → records the call via `mockTxUpdate(table, values)`.
+
 - **Auth helpers (`@/lib/users`):** `vi.mock("@/lib/users", () => ({ requireActiveDbUser: mockFn, requireAdmin: mockFn, getOrCreateDbUser: mockFn }))`. These helpers cross the DB boundary; mocking at this seam keeps tests hermetic. Each test injects either a user row (happy path) or a `NextResponse` (error path — 400 / 403 / 503).
 
 - **R2 (`@/lib/r2`):** `vi.mock("@/lib/r2", () => ({ getPresignedPutUrl: mockFn, headObject: mockFn, publicUrlFor: mockFn, buildGlbKey: mockFn, buildThumbnailKey: mockFn, buildMediaKey: mockFn }))`. `getPresignedPutUrl` returns a predictable URL string; `headObject` returns `{ exists: bool, contentLength: number | undefined }`; `publicUrlFor` returns a deterministic CDN URL from bucket + key. Reason: R2 requires AWS SDK credentials and live network access not available in the test runner.
@@ -77,7 +82,8 @@ Per-file test counts verified by `npx vitest run --reporter=json` on commit `127
 | 4 | `src/app/api/worlds/[id]/comments/route.test.ts` (29) · `src/app/api/comments/[id]/route.test.ts` (9) · `src/app/api/worlds/[id]/repost/route.test.ts` (15) | **53** | Comment CRUD + cursor pagination, delete auth (author or world owner), repost/un-repost idempotency |
 | 5 | `src/app/api/worlds/[id]/updates/route.test.ts` (29) · `src/app/api/updates/[id]/route.test.ts` (20) | **49** | World updates POST/GET + cursor pagination, PATCH/DELETE with owner-only authorization |
 | 6 | `src/app/api/worlds/[id]/reports/route.test.ts` (11) · `src/app/api/admin/reports/route.test.ts` (13) · `src/app/api/admin/reports/[id]/route.test.ts` (10) · `src/app/api/admin/users/[id]/suspend/route.test.ts` (10) | **44** | Report submit (suspension-exempt safety valve tested explicitly), admin queue + status filter, resolve/dismiss, suspend/unsuspend with self-action guard |
-| **Total** | **16 files** | **311 tests** | All passing on `main` at `127f5d7` |
+| 7.1 | `src/app/api/worlds/route.test.ts` (Block I — 15 new) · `src/db/schema.test.ts` (2 new assertions) | **+17** | Tag normalization, validation, dedup, char limits, disallowed chars, whitespace stripping, existing-tag reuse; `tags` + `worldTags` schema exports |
+| **Total** | **16 files** | **328 tests** | All passing after sub-slice 7.1 tag tests added |
 
 ## Common Test Cases for Every API Route
 

@@ -51,8 +51,10 @@ src/
     │   └── ReportButton.tsx       # native <dialog>, reason dropdown, optional notes
     ├── comments-section/
     │   └── CommentsSection.tsx    # list + composer + delete + load more
-    └── updates-timeline/
-        └── UpdatesTimeline.tsx    # owner-only composer + inline edit + delete
+    ├── updates-timeline/
+    │   └── UpdatesTimeline.tsx    # owner-only composer + inline edit + delete
+    └── tag-chip/
+        └── TagChip.tsx            # server component; rounded-pill link to /search?tag=; props: name, size ("default"|"small")
 # Note: Header and Footer are inlined in src/app/layout.tsx, not separate component directories.
 ```
 
@@ -60,9 +62,9 @@ src/
 
 | Route | File | Server/Client | Purpose | Slice |
 |---|---|---|---|---|
-| `/` | `src/app/page.tsx` | Server | Feed (Recent / Following tabs via `?tab=`) | 1, 3, 4, 5 |
-| `/world/[id]` | `src/app/world/[id]/page.tsx` | Server | World viewer page (3D + metadata + carousel + updates + comments + actions) | 1, 2, 3, 4, 5 |
-| `/profile/[username]` | `src/app/profile/[username]/page.tsx` | Server | Profile (avatar, follower/following counts, world grid) | 1, 3 |
+| `/` | `src/app/page.tsx` | Server | Feed (Recent / Following tabs via `?tab=`). Cards show up to 3 tag chips + `+N more` overflow. | 1, 3, 4, 5, 7.1 |
+| `/world/[id]` | `src/app/world/[id]/page.tsx` | Server | World viewer page (3D + metadata + carousel + updates + comments + actions). Tag chips row below title. | 1, 2, 3, 4, 5, 7.1 |
+| `/profile/[username]` | `src/app/profile/[username]/page.tsx` | Server | Profile (avatar, follower/following counts, world grid). Cards show up to 3 tag chips + `+N more` overflow. | 1, 3, 7.1 |
 | `/upload` | `src/app/upload/page.tsx` + `UploadForm.tsx` | Client (`UploadForm`) | Multi-step upload form | 1, 2 |
 | `/sign-in/[[...sign-in]]` | `src/app/sign-in/[[...sign-in]]/page.tsx` | Server (Clerk drop-in) | Clerk sign-in | 0 |
 | `/sign-up/[[...sign-up]]` | `src/app/sign-up/[[...sign-up]]/page.tsx` | Server (Clerk drop-in) | Clerk sign-up | 0 |
@@ -108,9 +110,10 @@ Multi-step upload flow at `/upload` is the canonical example:
 
 1. GLB upload (with size check + presigned URL)
 2. Thumbnail upload
-3. Metadata (title, description, future: tags)
-4. TOS acceptance
-5. Publish (calls `POST /api/worlds`)
+3. Metadata (title, description, tags, TOS)
+4. Publish (calls `POST /api/worlds`)
+
+**Tag input (in metadata step):** Two state vars — `tags: string[]` (committed) and `tagsInput: string` (current text). Tokenizes on `,` or Enter: normalizes (`trim().toLowerCase().slice(0,32)`), validates against `/^[a-z0-9][a-z0-9_-]*$/`, rejects if >5 tags or already present, shows inline error via `aria-describedby`. Chip preview row with `×` remove buttons. Backspace in empty input removes last chip. `tags` is sent in the `POST /api/worlds` body (omitted when empty).
 
 Plain controlled React — no form library. Each field has its own `useState` error string. On submit, fields validate synchronously and errors are set before any async work starts. The upload state machine runs via `runUpload(startFrom)`, which resumes from the failed sub-step on retry (signed URLs cached in `useRef` to avoid re-signing).
 
@@ -153,15 +156,17 @@ No `loading.tsx` files exist. Strategies used:
 
 ## Slice 7 Frontend Additions
 
-Components / pages to be added in Slice 7:
+Shipped in 7.1:
+- `TagChip` server component (`src/components/tag-chip/TagChip.tsx`) — `<Link>` to `/search?tag=`, rounded-pill, two sizes.
+- Tags input in UploadForm metadata step — tokenize on comma/Enter, chip preview with remove buttons.
+- Tag chips on world page (all tags, below title), feed cards (≤3 + overflow), profile cards (≤3 + overflow).
 
-- Tags input on `/upload` (max 5, free-form, lowercase, 32 chars each)
-- Tags display on world cards + world page (clickable to filter feed)
-- Search bar in `Header` → `/search?q=` page
-- "Trending" tab on `/` (third tab alongside Recent / Following)
-- View count display on world cards + world page
-- Bell icon in `Header` with unread count badge
-- `/notifications` page (paginated list, mark-as-read on view)
+Still to come:
+- Search bar in `Header` → `/search?q=` page (7.2)
+- "Trending" tab on `/` (third tab alongside Recent / Following) (7.4)
+- View count display on world cards + world page (7.3)
+- Bell icon in `Header` with unread count badge (7.5)
+- `/notifications` page (paginated list, mark-as-read on view) (7.5)
 
 ## Phase 2 Frontend Additions (Future, Not Now)
 

@@ -83,9 +83,10 @@ Current migrations:
 0003_slice4_engagement.sql
 0004_slice5_world_updates.sql
 0005_slice6_moderation.sql
+0006_slice7_tags.sql
 ```
 
-Next: `0006_slice7_*.sql` (tags, world_tags, notifications, view counts).
+Next: `0007_slice7_search.sql`, `0008_slice7_views.sql`, `0009_slice7_notifications.sql`.
 
 ## Object Storage (R2)
 

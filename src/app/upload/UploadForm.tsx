@@ -160,6 +160,9 @@ export function UploadForm() {
   const [title, setTitle] = useState<string>("");
   const [titleError, setTitleError] = useState<string>("");
   const [description, setDescription] = useState<string>("");
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagsInput, setTagsInput] = useState<string>("");
+  const [tagsError, setTagsError] = useState<string>("");
   const [tosAccepted, setTosAccepted] = useState<boolean>(false);
   const [tosError, setTosError] = useState<string>("");
 
@@ -420,6 +423,62 @@ export function UploadForm() {
 
   function handleImagesContinue() {
     setStep("metadata");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Step 5: Metadata — tag input helpers
+  // ---------------------------------------------------------------------------
+
+  const TAG_REGEX = /^[a-z0-9][a-z0-9_-]*$/;
+
+  function commitTagInput(raw: string) {
+    const normalized = raw.trim().toLowerCase().slice(0, 32);
+    if (!normalized) return;
+
+    if (!TAG_REGEX.test(normalized)) {
+      setTagsError(
+        "Tags must be 1–32 chars, lowercase, alphanumeric/dash/underscore only."
+      );
+      return;
+    }
+    if (tags.includes(normalized)) {
+      // Silently clear the input on duplicate — not an error worth surfacing
+      setTagsInput("");
+      return;
+    }
+    if (tags.length >= 5) {
+      setTagsError("Maximum 5 tags reached.");
+      return;
+    }
+    setTagsError("");
+    setTags((prev) => [...prev, normalized]);
+    setTagsInput("");
+  }
+
+  function handleTagsKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commitTagInput(tagsInput);
+    } else if (e.key === "Backspace" && tagsInput === "" && tags.length > 0) {
+      // Backspace in empty input removes the last tag
+      setTagsError("");
+      setTags((prev) => prev.slice(0, -1));
+    }
+  }
+
+  function handleTagsChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const val = e.target.value;
+    if (val.endsWith(",")) {
+      commitTagInput(val.slice(0, -1));
+    } else {
+      setTagsInput(val);
+      if (tagsError) setTagsError("");
+    }
+  }
+
+  function handleRemoveTag(name: string) {
+    setTagsError("");
+    setTags((prev) => prev.filter((t) => t !== name));
   }
 
   // ---------------------------------------------------------------------------
@@ -704,6 +763,7 @@ export function UploadForm() {
             title: resolvedTitle,
             description: description || undefined,
             tosAccepted: true,
+            tags: tags.length > 0 ? tags : undefined,
             glbKey: glbKeyRef.current,
             glbSizeBytes: file.size,
             media: [
@@ -835,6 +895,9 @@ export function UploadForm() {
     setTitle("");
     setTitleError("");
     setDescription("");
+    setTags([]);
+    setTagsInput("");
+    setTagsError("");
     setTosAccepted(false);
     setTosError("");
     setErrorMessage("");
@@ -1397,6 +1460,61 @@ export function UploadForm() {
             <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">
               {description.length} / 1000
             </p>
+          </div>
+
+          <div className="mb-4">
+            <label
+              htmlFor="tags-input"
+              className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1"
+            >
+              Tags{" "}
+              <span className="text-neutral-400 dark:text-neutral-500">
+                (optional)
+              </span>
+            </label>
+            <input
+              id="tags-input"
+              type="text"
+              value={tagsInput}
+              onChange={handleTagsChange}
+              onKeyDown={handleTagsKeyDown}
+              disabled={tags.length >= 5}
+              placeholder="Add tags (press Enter or comma to add, up to 5)"
+              className="block w-full text-sm border border-neutral-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder-neutral-500 dark:focus:ring-neutral-400 disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-describedby={tagsError ? "tags-error" : undefined}
+            />
+            {tagsError && (
+              <p
+                id="tags-error"
+                role="alert"
+                className="mt-1 text-sm text-red-600 dark:text-red-400"
+              >
+                {tagsError}
+              </p>
+            )}
+            {tags.length > 0 && (
+              <div
+                className="mt-2 flex flex-wrap gap-1.5"
+                aria-label="Selected tags"
+              >
+                {tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2.5 py-0.5 text-xs font-medium text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
+                  >
+                    #{tag}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveTag(tag)}
+                      aria-label={`Remove tag ${tag}`}
+                      className="flex items-center justify-center rounded-full text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-neutral-500"
+                    >
+                      &times;
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="mb-6">

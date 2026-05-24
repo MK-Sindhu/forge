@@ -72,6 +72,14 @@ Owner-only timeline on a world. Text only in v1.
 ### `reports`
 Moderation queue. Unique constraint on `(reporter_id, world_id)`. CHECK enums on `reason` and `status`. `resolved_by_id` ON DELETE SET NULL.
 
+### `tags`
+Slice 7.1. Free-form creator tags. `id` (uuid PK), `name` (text, NOT NULL, UNIQUE), `created_at`. Named CHECK constraint `tags_name_check` enforces `length(name) BETWEEN 1 AND 32 AND name = lower(name)`. Max 5 per world is an API-layer concern — the DB allows more.
+
+Accepted characters: `[a-z0-9_-]` (regex validated in `POST /api/worlds`). Emoji, spaces, and `#` are rejected at the route level.
+
+### `world_tags`
+Slice 7.1. Join table between `worlds` and `tags`. Composite PK on `(world_id, tag_id)`. Both FKs are CASCADE DELETE. Index `world_tags_tag_id_idx` on `tag_id` for "all worlds with tag X" queries. `onConflictDoNothing` used on insert (idempotent tag assignment).
+
 ## Auth Helpers (`src/lib/users.ts`)
 
 Three helpers, used everywhere. Pick the right one for the situation.
@@ -140,8 +148,8 @@ Verified by walking `src/app/api/` (15 `route.ts` files as of Slice 6). `/api/fe
 |---|---|---|---|---|
 | GET | `/api/me` | required | Returns (or creates) the DB user row for the signed-in Clerk user | 0 |
 | POST | `/api/uploads/sign` | required | Returns presigned R2 PUT URL | 1 |
-| POST | `/api/worlds` | required, active | Create a world (HEADs R2 keys, transactional insert) | 1 |
-| GET | `/api/worlds/[id]` | public | Joins media + author; includes `isLikedByCurrentUser`, `isRepostedByCurrentUser` | 1 |
+| POST | `/api/worlds` | required, active | Create a world (HEADs R2 keys, transactional insert); accepts optional `tags` array (max 5, normalized + validated); inserts `tags` + `world_tags` in the same transaction | 1, 7.1 |
+| GET | `/api/worlds/[id]` | public | Joins media + author + tags; includes `isLikedByCurrentUser`, `isRepostedByCurrentUser`; response includes `tags: { name: string }[]` | 1, 7.1 |
 | POST | `/api/worlds/[id]/likes` | required, active | Like (idempotent, transactional recount) | 3 |
 | DELETE | `/api/worlds/[id]/likes` | required, active | Unlike | 3 |
 | POST | `/api/users/[username]/follow` | required, active | Follow (idempotent, rejects self-follow) | 3 |
@@ -172,6 +180,20 @@ Phase 2 introduces a **scene graph API** as the canonical mutation surface for w
 
 See `ROADMAP.md` Phase 2 for the full design discussion.
 
+## Tag Normalization Pattern (Slice 7.1)
+
+Used in `POST /api/worlds` to sanitize tag input before DB insertion:
+
+1. Lowercase + trim each input string
+2. Filter out empty strings
+3. Deduplicate (Set)
+4. Validate each against `/^[a-z0-9][a-z0-9_-]*$/` — reject with 400 if any fail
+5. Enforce max 5 tags; reject with 400 if exceeded
+6. Inside the existing worlds transaction:
+   - `INSERT INTO tags (name) VALUES (...) ON CONFLICT (name) DO NOTHING` (bulk)
+   - Re-select any tag rows whose IDs weren't returned via `SELECT id, name FROM tags WHERE name = ANY($1)`
+   - Bulk `INSERT INTO world_tags` (idempotent via `onConflictDoNothing`)
+
 ## Known Gotchas
 
 - **`auth()` and `currentUser()` are async in Clerk v7.** Always `await`.
@@ -180,3 +202,4 @@ See `ROADMAP.md` Phase 2 for the full design discussion.
 - **`.env.local` needs explicit `dotenv.config({ path: ".env.local" })`** in tsx scripts.
 - **Recount counters, don't increment.** Prevents drift.
 - **`requireActiveDbUser` on every new write endpoint** by default. Exempt only with explicit justification (the reports endpoint is the canonical example).
+- **Tag characters:** only `[a-z0-9_-]` allowed. Reject anything outside this set (spaces, emoji, `#`) with 400 at the route level. The DB CHECK constraint enforces lowercase + length as a safety net.

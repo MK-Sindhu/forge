@@ -148,6 +148,8 @@ export const worldsRelations = relations(worlds, ({ one, many }) => ({
   updates: many(worldUpdates),
   // Slice 6 — moderation
   reports: many(reports),
+  // Slice 7.1 — tags
+  tags: many(worldTags),
 }));
 
 export const worldMediaRelations = relations(worldMedia, ({ one }) => ({
@@ -295,4 +297,46 @@ export const reportsRelations = relations(reports, ({ one }) => ({
   reporter: one(users, { fields: [reports.reporterId], references: [users.id], relationName: "reporter" }),
   world: one(worlds, { fields: [reports.worldId], references: [worlds.id] }),
   resolvedBy: one(users, { fields: [reports.resolvedById], references: [users.id], relationName: "resolver" }),
+}));
+
+// ---------------------------------------------------------------------------
+// tags
+// Slice 7.1 — free-form creator tags. name is unique and must be lowercase
+// (enforced by a named CHECK constraint). Max 32 chars. Max 5 per world is an
+// API-layer concern; the DB allows more.
+// ---------------------------------------------------------------------------
+export const tags = pgTable("tags", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull().unique(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  check("tags_name_check",
+    sql`length(${t.name}) BETWEEN 1 AND 32 AND ${t.name} = lower(${t.name})`),
+]);
+
+// ---------------------------------------------------------------------------
+// world_tags
+// Slice 7.1 — join table between worlds and tags.
+// Composite PK on (world_id, tag_id). Both FKs CASCADE DELETE.
+// Index on tag_id for "all worlds with tag X" queries.
+// ---------------------------------------------------------------------------
+export const worldTags = pgTable("world_tags", {
+  worldId: uuid("world_id").notNull().references(() => worlds.id, { onDelete: "cascade" }),
+  tagId:   uuid("tag_id").notNull().references(() => tags.id,   { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.worldId, t.tagId] }),
+  index("world_tags_tag_id_idx").on(t.tagId),
+]);
+
+// ---------------------------------------------------------------------------
+// relations (Slice 7.1 additions)
+// ---------------------------------------------------------------------------
+export const tagsRelations = relations(tags, ({ many }) => ({
+  worlds: many(worldTags),
+}));
+
+export const worldTagsRelations = relations(worldTags, ({ one }) => ({
+  world: one(worlds, { fields: [worldTags.worldId], references: [worlds.id] }),
+  tag:   one(tags,   { fields: [worldTags.tagId],   references: [tags.id] }),
 }));

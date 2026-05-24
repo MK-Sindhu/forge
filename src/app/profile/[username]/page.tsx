@@ -7,6 +7,7 @@ import { db } from "@/db";
 import { users, follows } from "@/db/schema";
 import { WorldCardMedia } from "@/components/world-card-media/WorldCardMedia";
 import { FollowButton } from "@/components/follow-button/FollowButton";
+import { TagChip } from "@/components/tag-chip/TagChip";
 
 export default async function ProfilePage({
   params,
@@ -34,6 +35,7 @@ export default async function ProfilePage({
             limit: 2,
             columns: { type: true, url: true },
           },
+          tags: { with: { tag: { columns: { name: true } } } },
         },
       },
     },
@@ -157,6 +159,18 @@ export default async function ProfilePage({
                     <h2 className="line-clamp-2 text-sm font-medium text-neutral-900 dark:text-neutral-100">
                       {world.title}
                     </h2>
+                    {world.tags.length > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {world.tags.slice(0, 3).map((wt) => (
+                          <TagChip key={wt.tag.name} name={wt.tag.name} size="small" />
+                        ))}
+                        {world.tags.length > 3 && (
+                          <span className="inline-flex items-center rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+                            +{world.tags.length - 3} more
+                          </span>
+                        )}
+                      </div>
+                    )}
                     <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
                       {world.likesCount}{" "}
                       {world.likesCount === 1 ? "like" : "likes"} ·{" "}

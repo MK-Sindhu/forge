@@ -60,6 +60,11 @@ export async function GET(
           position: true,
         },
       },
+      tags: {
+        with: {
+          tag: { columns: { name: true } },
+        },
+      },
     },
   });
 
@@ -133,6 +138,7 @@ export async function GET(
       sizeBytes: m.sizeBytes,
       position: m.position,
     })),
+    tags: row.tags.map(wt => ({ name: wt.tag.name })),
     isLikedByCurrentUser,
     isRepostedByCurrentUser,
   });

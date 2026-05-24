@@ -27,10 +27,10 @@
 
 import { NextResponse } from "next/server";
 import { auth, currentUser } from "@clerk/nextjs/server";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { dbPool } from "@/db";
-import { worlds, worldMedia, users } from "@/db/schema";
+import { worlds, worldMedia, users, tags, worldTags } from "@/db/schema";
 import { headObject, publicUrlFor } from "@/lib/r2";
 import { requireActiveDbUser } from "@/lib/users";
 
@@ -63,6 +63,9 @@ const BodySchema = z.object({
 
   // Media array: 1–6 items. Must include exactly one thumbnail, at most one video.
   media: z.array(MediaItemSchema).min(1).max(6),
+
+  // Optional creator tags — max 5, free-form. Normalized + validated after parse.
+  tags: z.array(z.string()).max(5).optional(),
 });
 
 type Body = z.infer<typeof BodySchema>;
@@ -116,7 +119,25 @@ export async function POST(req: Request) {
 
   const { worldId, title, description, glbKey, glbSizeBytes, media } = body;
 
-  // --- 3. Post-parse media array constraints ---------------------------------
+  // --- 3. Normalize and validate tags ----------------------------------------
+  const normalizedTags = Array.from(new Set(
+    (body.tags ?? [])
+      .map(t => t.trim().toLowerCase())
+      .filter(t => t.length > 0)
+  ));
+  if (normalizedTags.length > 5) {
+    return NextResponse.json({ error: "Maximum 5 tags per world" }, { status: 400 });
+  }
+  const TAG_REGEX = /^[a-z0-9][a-z0-9_-]*$/;
+  for (const tag of normalizedTags) {
+    if (tag.length > 32 || !TAG_REGEX.test(tag)) {
+      return NextResponse.json({
+        error: `Invalid tag "${tag}" — tags must be 1-32 chars, lowercase, alphanumeric/dash/underscore only, no leading punctuation`,
+      }, { status: 400 });
+    }
+  }
+
+  // --- 4a. Post-parse media array constraints --------------------------------
   const thumbnailItems = media.filter((m) => m.kind === "thumbnail");
   if (thumbnailItems.length !== 1) {
     return NextResponse.json(
@@ -138,7 +159,7 @@ export async function POST(req: Request) {
     );
   }
 
-  // --- 4. Security: R2 key prefix must match authenticated user + worldId ----
+  // --- 4b. Security: R2 key prefix must match authenticated user + worldId ---
   if (!keyMatchesUserAndWorld(glbKey, userId, worldId)) {
     return NextResponse.json(
       { error: "key does not match authenticated user/world" },
@@ -233,6 +254,26 @@ export async function POST(req: Request) {
         .update(users)
         .set({ tosAcceptedAt: new Date() })
         .where(eq(users.id, dbUser.id));
+    }
+
+    // Insert tags transactionally with the world.
+    // 1. Insert any new tags, ignoring conflicts on name (existing tags reused).
+    // 2. Re-select all tag IDs (RETURNING is empty on conflict, so always re-fetch).
+    // 3. Bulk-insert world_tags join rows.
+    if (normalizedTags.length > 0) {
+      await tx
+        .insert(tags)
+        .values(normalizedTags.map(name => ({ name })))
+        .onConflictDoNothing();
+
+      const tagRows = await tx
+        .select({ id: tags.id, name: tags.name })
+        .from(tags)
+        .where(inArray(tags.name, normalizedTags));
+
+      await tx.insert(worldTags).values(
+        tagRows.map(t => ({ worldId, tagId: t.id }))
+      );
     }
   });
 

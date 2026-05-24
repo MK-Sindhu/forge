@@ -5,8 +5,9 @@ import { and, desc, eq, inArray, or } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { auth } from "@clerk/nextjs/server";
 import { db } from "@/db";
-import { worlds, users, follows, reposts, worldUpdates, worldMedia } from "@/db/schema";
+import { worlds, users, follows, reposts, worldUpdates, worldMedia, worldTags, tags as tagsTable } from "@/db/schema";
 import { WorldCardMedia } from "@/components/world-card-media/WorldCardMedia";
+import { TagChip } from "@/components/tag-chip/TagChip";
 
 // ---------------------------------------------------------------------------
 // Types inferred from the Drizzle query result
@@ -22,6 +23,7 @@ type FeedWorld = {
     avatarUrl: string | null;
   };
   media: { type: string; url: string }[];
+  tags: { name: string }[];
 };
 
 type FeedEntry =
@@ -149,6 +151,7 @@ export default async function FeedPage({
             limit: 2,
             columns: { type: true, url: true },
           },
+          tags: { with: { tag: { columns: { name: true } } } },
         },
       });
 
@@ -179,6 +182,7 @@ export default async function FeedPage({
                   limit: 2,
                   columns: { type: true, url: true },
                 },
+                tags: { with: { tag: { columns: { name: true } } } },
               },
             });
 
@@ -232,9 +236,34 @@ export default async function FeedPage({
         mediaByWorld.get(m.worldId)!.push({ type: m.type, url: m.url });
       }
 
+      // Step 5b: fetch tags for the worlds referenced in updates
+      const updateTagRows =
+        updateWorldIds.length === 0
+          ? []
+          : await db
+              .select({
+                worldId: worldTags.worldId,
+                name: tagsTable.name,
+              })
+              .from(worldTags)
+              .innerJoin(tagsTable, eq(tagsTable.id, worldTags.tagId))
+              .where(inArray(worldTags.worldId, updateWorldIds));
+
+      const tagsByWorld = new Map<string, { name: string }[]>();
+      for (const t of updateTagRows) {
+        if (!tagsByWorld.has(t.worldId)) tagsByWorld.set(t.worldId, []);
+        tagsByWorld.get(t.worldId)!.push({ name: t.name });
+      }
+
+      // Flatten Drizzle relational tags shape { tag: { name } }[] → { name }[]
+      type WithRawTags = Omit<(typeof originalRows)[number], "tags"> & {
+        tags: { tag: { name: string } }[];
+      };
+
       // Step 6: merge + sort by activityAt DESC, cap at 50
       const merged: FeedEntry[] = [
-        ...(originalRows as FeedWorld[]).map((w) => {
+        ...(originalRows as unknown as WithRawTags[]).map((w) => {
+          const flatTags = w.tags.map((wt) => ({ name: wt.tag.name }));
           const r = repostByWorld.get(w.id);
           // If a followee reposted this world AND the repost is more recent
           // than the original publish, surface it as a repost with that
@@ -243,6 +272,7 @@ export default async function FeedPage({
           if (r && r.repostedAt > w.createdAt) {
             return {
               ...w,
+              tags: flatTags,
               entryType: "repost" as const,
               activityAt: r.repostedAt,
               repostedBy: r.reposterUsername,
@@ -252,6 +282,7 @@ export default async function FeedPage({
           }
           return {
             ...w,
+            tags: flatTags,
             entryType: "original" as const,
             activityAt: w.createdAt,
             repostedBy: null,
@@ -259,11 +290,13 @@ export default async function FeedPage({
             updateId: null,
           };
         }),
-        ...(repostOnlyRows as FeedWorld[]).map((w) => {
+        ...(repostOnlyRows as unknown as WithRawTags[]).map((w) => {
+          const flatTags = w.tags.map((wt) => ({ name: wt.tag.name }));
           // Guaranteed: every id in repostOnlyIds has an entry in repostByWorld
           const r = repostByWorld.get(w.id)!;
           return {
             ...w,
+            tags: flatTags,
             entryType: "repost" as const,
             activityAt: r.repostedAt,
             repostedBy: r.reposterUsername,
@@ -280,6 +313,7 @@ export default async function FeedPage({
           createdAt: u.worldCreatedAt,
           user: { username: u.authorUsername, avatarUrl: u.authorAvatarUrl },
           media: mediaByWorld.get(u.worldId) ?? [],
+          tags: tagsByWorld.get(u.worldId) ?? [],
           activityAt: u.updateCreatedAt,
           repostedBy: null,
           updateBody: u.updateBody,
@@ -312,11 +346,13 @@ export default async function FeedPage({
           limit: 2,
           columns: { type: true, url: true },
         },
+        tags: { with: { tag: { columns: { name: true } } } },
       },
     });
     // Recent tab has no repost attribution — activityAt equals createdAt, repostedBy is null
-    rows = (result as FeedWorld[]).map((w) => ({
+    rows = (result as unknown as Array<Omit<(typeof result)[number], "tags"> & { tags: { tag: { name: string } }[] }>).map((w) => ({
       ...w,
+      tags: w.tags.map((wt) => ({ name: wt.tag.name })),
       entryType: "original" as const,
       activityAt: w.createdAt,
       repostedBy: null,
@@ -447,6 +483,19 @@ function FeedCard({ world }: { world: FeedEntry }) {
             <p className="mt-1 line-clamp-2 text-xs text-neutral-600 dark:text-neutral-400">
               &quot;{world.updateBody}&quot;
             </p>
+          )}
+          {/* Tag chips — up to 3 visible, with +N overflow */}
+          {world.tags.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {world.tags.slice(0, 3).map((t) => (
+                <TagChip key={t.name} name={t.name} size="small" />
+              ))}
+              {world.tags.length > 3 && (
+                <span className="inline-flex items-center rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+                  +{world.tags.length - 3} more
+                </span>
+              )}
+            </div>
           )}
           <div className="mt-2 flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
             {world.user.avatarUrl && (
