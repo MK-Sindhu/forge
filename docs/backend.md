@@ -34,7 +34,7 @@ src/
     └── format-relative.ts # "5m ago" timestamps (used by frontend too)
 ```
 
-## Database Schema (Current — 9 Tables)
+## Database Schema (Current — 10 Tables)
 
 Authoritative source: `src/db/schema.ts`. This section is a reference summary.
 
@@ -79,6 +79,13 @@ Accepted characters: `[a-z0-9_-]` (regex validated in `POST /api/worlds`). Emoji
 
 ### `world_tags`
 Slice 7.1. Join table between `worlds` and `tags`. Composite PK on `(world_id, tag_id)`. Both FKs are CASCADE DELETE. Index `world_tags_tag_id_idx` on `tag_id` for "all worlds with tag X" queries. `onConflictDoNothing` used on insert (idempotent tag assignment).
+
+### `world_views`
+Slice 7.3. Per-user-per-day view deduplication table. Composite PK on `(viewer_id, world_id, day)` (Postgres `date` type, UTC `YYYY-MM-DD`). Both FKs are CASCADE DELETE. Index `world_views_world_id_idx` on `world_id` for efficient recount.
+
+Anonymous views are intentionally ignored (locked decision, PROJECT.md §7). Only signed-in, active users increment `worlds.views`.
+
+No Drizzle relations are defined — this table is internal and never queried via `db.query` relational helpers. The recount-from-source pattern (same as likes) writes to `worlds.views` in the same transaction.
 
 ### `worlds.search_vector` (DB-only, not in Drizzle schema)
 Slice 7.2. `tsvector` column added directly to the `worlds` table via migration `0007_slice7_search.sql`. **This column is intentionally absent from `src/db/schema.ts`.** It is Postgres-managed — triggers populate and maintain it automatically. Application code never writes to it directly. Drizzle queries against `worlds` simply don't see this column (no TS errors, no runtime errors). Queries that need to search use raw `sql` template literals: `sql\`search_vector @@ websearch_to_tsquery('english', ${q})\``.
@@ -166,6 +173,7 @@ Verified by walking `src/app/api/` (15 `route.ts` files as of Slice 6). `/api/fe
 | GET | `/api/worlds/[id]/updates` | public | Paginated (cursor) | 5 |
 | PATCH | `/api/updates/[id]` | required, world-owner | Edit update (sets `edited_at`) | 5 |
 | DELETE | `/api/updates/[id]` | required, world-owner | Delete update | 5 |
+| POST | `/api/worlds/[id]/views` | required, active | Record a view (idempotent per user+world+day); recounts `worlds.views` in a transaction | 7.3 |
 | POST | `/api/worlds/[id]/reports` | required (suspension-EXEMPT) | File a report | 6 |
 | GET | `/api/admin/reports` | admin | Paginated queue, status filter | 6 |
 | PATCH | `/api/admin/reports/[id]` | admin | Resolve / dismiss | 6 |
@@ -237,6 +245,31 @@ db.query.worlds.findMany({
 ### Backfill
 
 Migration includes `UPDATE worlds SET title = title;` to fire the BEFORE trigger on all existing rows. This populates `search_vector` for all worlds that existed before the migration.
+
+## View Tracking Pattern (Slice 7.3)
+
+`POST /api/worlds/[id]/views` uses the same recount-from-source transaction shape as likes, with an extra dedup layer:
+
+```ts
+await dbPool.transaction(async (tx) => {
+  await tx.insert(worldViews)
+    .values({ viewerId, worldId, day })  // day = UTC YYYY-MM-DD
+    .onConflictDoNothing();              // composite PK dedup: (viewer, world, day)
+
+  const [row] = await tx.select({ count: count() })
+    .from(worldViews).where(eq(worldViews.worldId, worldId));
+
+  await tx.update(worlds)
+    .set({ views: Number(row.count) })
+    .where(eq(worlds.id, worldId));
+});
+```
+
+**Locked decisions:**
+- Anonymous views are ignored — only signed-in users via `requireActiveDbUser` reach the insert.
+- Suspended users do not increment views (`requireActiveDbUser` returns 403 for them).
+- Day boundary is UTC (`new Date().toISOString().slice(0, 10)`). A user who visits at 23:59 UTC and again at 00:01 UTC the next day counts as two views.
+- No Drizzle relations on `world_views` — the table is write-and-recount only, never joined via `db.query.*`.
 
 ## Tag Normalization Pattern (Slice 7.1)
 

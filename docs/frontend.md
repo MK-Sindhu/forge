@@ -53,8 +53,10 @@ src/
     │   └── CommentsSection.tsx    # list + composer + delete + load more
     ├── updates-timeline/
     │   └── UpdatesTimeline.tsx    # owner-only composer + inline edit + delete
-    └── tag-chip/
-        └── TagChip.tsx            # server component; rounded-pill link to /search?tag=; props: name, size ("default"|"small")
+    ├── tag-chip/
+    │   └── TagChip.tsx            # server component; rounded-pill link to /search?tag=; props: name, size ("default"|"small")
+    └── view-tracker/
+        └── ViewTracker.tsx        # client component; fires POST /api/worlds/[id]/views once on mount for signed-in users; returns null (no UI)
 # Note: Header and Footer are inlined in src/app/layout.tsx, not separate component directories.
 ```
 
@@ -118,6 +120,21 @@ Multi-step upload flow at `/upload` is the canonical example:
 
 Plain controlled React — no form library. Each field has its own `useState` error string. On submit, fields validate synchronously and errors are set before any async work starts. The upload state machine runs via `runUpload(startFrom)`, which resumes from the failed sub-step on retry (signed URLs cached in `useRef` to avoid re-signing).
 
+### StrictMode-safe fire-once effect
+
+When a `useEffect` must run exactly once (e.g., `ViewTracker` POSTing a view count), use a `useRef<boolean>` flag set **before** the async call — not in `.then()` or `.finally()`:
+
+```tsx
+const firedRef = useRef(false);
+useEffect(() => {
+  if (firedRef.current) return;
+  firedRef.current = true;  // synchronous — before the fetch
+  fetch(...).catch(() => {});
+}, [dep]);
+```
+
+React 19 StrictMode intentionally unmounts + remounts components in dev. Because both the guard-check and the guard-set happen in the same synchronous tick before `fetch()` is awaited, the second mount sees `firedRef.current === true` and returns early. Setting the flag in `.then()` would leave a window where the second mount fires another fetch before the first resolves.
+
 ### Error boundaries
 
 Use `unstable_retry` (Clerk v7 renamed `reset`). Wrap risky chunks (3D viewer, async pages).
@@ -166,9 +183,14 @@ Shipped in 7.2:
 - Public search `<form action="/search" method="get">` in the root `layout.tsx` header. Placed between the FORGE wordmark and the right-side auth actions. `hidden md:block` keeps it off mobile. NOT inside a `<Show>` block — publicly visible.
 - `/search/page.tsx` — server component (no `"use client"`). Three behavior branches: (1) neither `q` nor `tag` → empty state; (2) `q` only → Postgres FTS via `search_vector @@ websearch_to_tsquery('english', ${q})`, ranked by `ts_rank` then `createdAt`; (3) `tag` only → `inArray` on tag subquery; (4) both → `and()` intersection of FTS + tag filter. Cap 50 results. Cards duplicate `FeedCard` markup (extract deferred until a third caller). `search_vector` is Postgres-managed and not in Drizzle schema — raw `sql\`\`` template tags used for FTS clauses.
 
+Shipped in 7.3:
+- `ViewTracker` client component (`src/components/view-tracker/ViewTracker.tsx`) — fires `POST /api/worlds/[id]/views` once on mount for signed-in users. Returns `null`. StrictMode-safe: `firedRef.current = true` is set synchronously **before** the `fetch()` call (not in `.then()`) so React 19 StrictMode's intentional double-mount cannot fire two requests.
+- Mounted at the top of `<main>` in `src/app/world/[id]/page.tsx`.
+- Feed cards now show view count alongside likes count: `{likes} likes · {views} views`.
+- Profile cards already showed view count (no change needed).
+
 Still to come:
 - "Trending" tab on `/` (third tab alongside Recent / Following) (7.4)
-- View count display on world cards + world page (7.3)
 - Bell icon in `Header` with unread count badge (7.5)
 - `/notifications` page (paginated list, mark-as-read on view) (7.5)
 

@@ -513,6 +513,11 @@ function FeedCard({ world }: { world: FeedEntry }) {
               {world.likesCount}{" "}
               {world.likesCount === 1 ? "like" : "likes"}
             </span>
+            <span aria-hidden>·</span>
+            <span>
+              {world.views}{" "}
+              {world.views === 1 ? "view" : "views"}
+            </span>
           </div>
         </div>
       </Link>

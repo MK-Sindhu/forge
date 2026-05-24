@@ -5,6 +5,7 @@ import {
   integer,
   boolean,
   timestamp,
+  date,
   index,
   primaryKey,
   unique,
@@ -340,3 +341,25 @@ export const worldTagsRelations = relations(worldTags, ({ one }) => ({
   world: one(worlds, { fields: [worldTags.worldId], references: [worlds.id] }),
   tag:   one(tags,   { fields: [worldTags.tagId],   references: [tags.id] }),
 }));
+
+// ---------------------------------------------------------------------------
+// world_views
+// Slice 7.3 — per-user-per-day view deduplication.
+// Composite PK on (viewer_id, world_id, day) makes every (user, world, day)
+// combination unique — onConflictDoNothing() is used on insert so repeated
+// visits on the same day are silently dropped.
+// After each successful insert, the transaction recounts all rows for the
+// world and writes the total to worlds.views (recount-from-source pattern).
+// Anonymous views are intentionally ignored (locked decision, PROJECT.md §7).
+// No Drizzle relations are defined — this table is internal and never queried
+// via db.query relational helpers.
+// ---------------------------------------------------------------------------
+export const worldViews = pgTable("world_views", {
+  viewerId:  uuid("viewer_id").notNull().references(() => users.id,  { onDelete: "cascade" }),
+  worldId:   uuid("world_id").notNull().references(() => worlds.id, { onDelete: "cascade" }),
+  day:       date("day").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.viewerId, t.worldId, t.day] }),
+  index("world_views_world_id_idx").on(t.worldId),
+]);

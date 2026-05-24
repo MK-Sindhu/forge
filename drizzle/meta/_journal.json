@@ -57,6 +57,13 @@
       "when": 1779560000000,
       "tag": "0007_slice7_search",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1779564000000,
+      "tag": "0008_slice7_views",
+      "breakpoints": true
     }
   ]
 }

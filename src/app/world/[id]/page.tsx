@@ -14,6 +14,7 @@ import { ReportButton } from "@/components/report-button/ReportButton";
 import CommentsSection from "@/components/comments-section/CommentsSection";
 import UpdatesTimeline from "@/components/updates-timeline/UpdatesTimeline";
 import { TagChip } from "@/components/tag-chip/TagChip";
+import { ViewTracker } from "@/components/view-tracker/ViewTracker";
 
 export default async function WorldPage(
   { params }: { params: Promise<{ id: string }> }
@@ -60,6 +61,7 @@ export default async function WorldPage(
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8">
+      <ViewTracker worldId={world.id} signedIn={signedIn} />
       {/* Header section: title, author, metadata */}
       <header className="mb-6">
         <h1 className="text-3xl font-semibold tracking-tight">{world.title}</h1>

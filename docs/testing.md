@@ -83,7 +83,8 @@ Per-file test counts verified by `npx vitest run --reporter=json` on commit `127
 | 5 | `src/app/api/worlds/[id]/updates/route.test.ts` (29) · `src/app/api/updates/[id]/route.test.ts` (20) | **49** | World updates POST/GET + cursor pagination, PATCH/DELETE with owner-only authorization |
 | 6 | `src/app/api/worlds/[id]/reports/route.test.ts` (11) · `src/app/api/admin/reports/route.test.ts` (13) · `src/app/api/admin/reports/[id]/route.test.ts` (10) · `src/app/api/admin/users/[id]/suspend/route.test.ts` (10) | **44** | Report submit (suspension-exempt safety valve tested explicitly), admin queue + status filter, resolve/dismiss, suspend/unsuspend with self-action guard |
 | 7.1 | `src/app/api/worlds/route.test.ts` (Block I — 15 new) · `src/db/schema.test.ts` (2 new assertions) | **+17** | Tag normalization, validation, dedup, char limits, disallowed chars, whitespace stripping, existing-tag reuse; `tags` + `worldTags` schema exports |
-| **Total** | **16 files** | **328 tests** | All passing after sub-slice 7.1 tag tests added |
+| 7.3 | `src/app/api/worlds/[id]/views/route.test.ts` (13 new) · `src/db/schema.test.ts` (1 new assertion) | **+14** | View count auth (401 × 2, 403 suspended), 400 invalid uuid, 404 world not found, happy path insert + recount + update, idempotency (same day no-op still writes recount), 503 DB error; `worldViews` schema export |
+| **Total** | **17 files** | **342 tests** | All passing after sub-slice 7.3 view count tests added |
 
 ## Common Test Cases for Every API Route
 
