@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { NextResponse } from "next/server";
 
 // ---------------------------------------------------------------------------
 // Mock hoisting
@@ -10,7 +11,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const {
   mockAuth,
   mockCurrentUser,
-  mockGetOrCreateDbUser,
+  mockRequireActiveDbUser,
   mockDbSelectLimit,
   mockDbInsertValues,
   mockDbDeleteWhere,
@@ -19,9 +20,9 @@ const {
   // External boundary: currentUser() fetches the full Clerk user object over
   // the network. Never want real Clerk calls in unit tests.
   mockCurrentUser: vi.fn(),
-  // External boundary: getOrCreateDbUser hits the DB; mocked so tests can
+  // External boundary: requireActiveDbUser hits the DB; mocked so tests can
   // inject a pre-built user row or simulate DB errors without a real connection.
-  mockGetOrCreateDbUser: vi.fn(),
+  mockRequireActiveDbUser: vi.fn(),
   // Controls what db.select()...limit() returns for the followee lookup.
   mockDbSelectLimit: vi.fn(),
   // Spy on the insert → values chain (captures the values passed to insert).
@@ -40,7 +41,7 @@ vi.mock("@clerk/nextjs/server", () => ({
 // Mock @/lib/users — avoids a real DB lookup + insert for user bootstrap.
 // This module crosses the DB boundary; mocking keeps tests hermetic.
 vi.mock("@/lib/users", () => ({
-  getOrCreateDbUser: mockGetOrCreateDbUser,
+  requireActiveDbUser: mockRequireActiveDbUser,
 }));
 
 // Mock @/db — real DB connections require DATABASE_URL + a running Neon
@@ -157,7 +158,7 @@ function callDelete(username: string) {
 function setupHappyPath() {
   mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
   mockCurrentUser.mockResolvedValue(CLERK_USER);
-  mockGetOrCreateDbUser.mockResolvedValue(FOLLOWER_DB_ROW);
+  mockRequireActiveDbUser.mockResolvedValue(FOLLOWER_DB_ROW);
   // Followee found by username lookup
   mockDbSelectLimit.mockResolvedValue([FOLLOWEE_DB_ROW]);
 }
@@ -173,7 +174,7 @@ describe("POST /api/users/[username]/follow — validation + auth", () => {
     // The route should reject before any I/O — no auth mock needed.
     mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
     mockCurrentUser.mockResolvedValue(CLERK_USER);
-    mockGetOrCreateDbUser.mockResolvedValue(FOLLOWER_DB_ROW);
+    mockRequireActiveDbUser.mockResolvedValue(FOLLOWER_DB_ROW);
 
     const res = await callPost("");
 
@@ -184,7 +185,7 @@ describe("POST /api/users/[username]/follow — validation + auth", () => {
   it("returns 400 when username exceeds 64 characters", async () => {
     mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
     mockCurrentUser.mockResolvedValue(CLERK_USER);
-    mockGetOrCreateDbUser.mockResolvedValue(FOLLOWER_DB_ROW);
+    mockRequireActiveDbUser.mockResolvedValue(FOLLOWER_DB_ROW);
 
     const res = await callPost(TOO_LONG_USERNAME);
 
@@ -204,8 +205,8 @@ describe("POST /api/users/[username]/follow — validation + auth", () => {
   it("returns 400 when Clerk user has no email (getOrCreateDbUser throws 'no email')", async () => {
     mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
     mockCurrentUser.mockResolvedValue(CLERK_USER);
-    mockGetOrCreateDbUser.mockRejectedValue(
-      new Error("no email on Clerk user")
+    mockRequireActiveDbUser.mockResolvedValue(
+      NextResponse.json({ error: "No email on Clerk user" }, { status: 400 })
     );
 
     const res = await callPost(FOLLOWEE_USERNAME);
@@ -217,8 +218,8 @@ describe("POST /api/users/[username]/follow — validation + auth", () => {
   it("returns 503 when getOrCreateDbUser throws an unexpected DB error", async () => {
     mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
     mockCurrentUser.mockResolvedValue(CLERK_USER);
-    mockGetOrCreateDbUser.mockRejectedValue(
-      new Error("connect ECONNREFUSED 127.0.0.1:5432")
+    mockRequireActiveDbUser.mockResolvedValue(
+      NextResponse.json({ error: "Database temporarily unavailable" }, { status: 503 })
     );
 
     const res = await callPost(FOLLOWEE_USERNAME);
@@ -230,7 +231,7 @@ describe("POST /api/users/[username]/follow — validation + auth", () => {
   it("returns 404 when the followee username does not exist in the DB", async () => {
     mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
     mockCurrentUser.mockResolvedValue(CLERK_USER);
-    mockGetOrCreateDbUser.mockResolvedValue(FOLLOWER_DB_ROW);
+    mockRequireActiveDbUser.mockResolvedValue(FOLLOWER_DB_ROW);
     // Empty array = username not found
     mockDbSelectLimit.mockResolvedValue([]);
 
@@ -243,7 +244,7 @@ describe("POST /api/users/[username]/follow — validation + auth", () => {
   it("returns 400 when the follower and followee are the same user (self-follow)", async () => {
     mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
     mockCurrentUser.mockResolvedValue(CLERK_USER);
-    mockGetOrCreateDbUser.mockResolvedValue(FOLLOWER_DB_ROW);
+    mockRequireActiveDbUser.mockResolvedValue(FOLLOWER_DB_ROW);
     // Followee lookup returns the same DB ID as the follower
     mockDbSelectLimit.mockResolvedValue([{ id: FOLLOWER_DB_ID }]);
 
@@ -269,7 +270,7 @@ describe("DELETE /api/users/[username]/follow — validation + auth", () => {
   it("returns 404 when the followee username does not exist in the DB", async () => {
     mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
     mockCurrentUser.mockResolvedValue(CLERK_USER);
-    mockGetOrCreateDbUser.mockResolvedValue(FOLLOWER_DB_ROW);
+    mockRequireActiveDbUser.mockResolvedValue(FOLLOWER_DB_ROW);
     mockDbSelectLimit.mockResolvedValue([]);
 
     const res = await callDelete(FOLLOWEE_USERNAME);
@@ -281,7 +282,7 @@ describe("DELETE /api/users/[username]/follow — validation + auth", () => {
   it("returns 400 when the follower and followee are the same user (self-follow)", async () => {
     mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
     mockCurrentUser.mockResolvedValue(CLERK_USER);
-    mockGetOrCreateDbUser.mockResolvedValue(FOLLOWER_DB_ROW);
+    mockRequireActiveDbUser.mockResolvedValue(FOLLOWER_DB_ROW);
     mockDbSelectLimit.mockResolvedValue([{ id: FOLLOWER_DB_ID }]);
 
     const res = await callDelete(FOLLOWEE_USERNAME);
@@ -292,10 +293,35 @@ describe("DELETE /api/users/[username]/follow — validation + auth", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Block B — POST (follow) behavior
+// Block B — Suspension guard
+//
+// This endpoint uses requireActiveDbUser. When that helper returns a 403
+// NextResponse (instead of a DbUser), the route must propagate it.
 // ---------------------------------------------------------------------------
 
-describe("POST /api/users/[username]/follow — follow behavior", () => {
+describe("POST /api/users/[username]/follow — suspension guard", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it("returns 403 when requireActiveDbUser signals the caller is suspended", async () => {
+    mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
+    mockCurrentUser.mockResolvedValue(CLERK_USER);
+    // requireActiveDbUser returns a 403 NextResponse for suspended users
+    mockRequireActiveDbUser.mockResolvedValue(
+      NextResponse.json({ error: "Account suspended" }, { status: 403 })
+    );
+
+    const res = await callPost(FOLLOWEE_USERNAME);
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ error: expect.any(String) });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Block C — POST (follow) behavior
+// ---------------------------------------------------------------------------
+
+describe("POST /api/users/[username]/follow — follow behavior (active user)", () => {
   beforeEach(() => vi.resetAllMocks());
 
   it("returns 200 with {following: true} on a successful follow", async () => {

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { NextResponse } from "next/server";
 
 // ---------------------------------------------------------------------------
 // Mock hoisting
@@ -10,7 +11,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const {
   mockAuth,
   mockCurrentUser,
-  mockGetOrCreateDbUser,
+  mockRequireActiveDbUser,
   mockDbSelectLimit,
   mockTransaction,
   // Fine-grained spies into the tx object surfaced inside the transaction callback.
@@ -24,9 +25,9 @@ const {
   // External boundary: currentUser() fetches the full Clerk user object over
   // the network; we never want real Clerk calls in unit tests.
   mockCurrentUser: vi.fn(),
-  // External boundary: getOrCreateDbUser hits the DB; mocked so tests can
+  // External boundary: requireActiveDbUser hits the DB; mocked so tests can
   // inject a pre-built user row or simulate DB errors without a real connection.
-  mockGetOrCreateDbUser: vi.fn(),
+  mockRequireActiveDbUser: vi.fn(),
   // Inner mock for db.select(...)...limit(n) — the world-existence check.
   mockDbSelectLimit: vi.fn(),
   // Inner mock for dbPool.transaction() — receives the async callback and
@@ -51,7 +52,7 @@ vi.mock("@clerk/nextjs/server", () => ({
 // This module is an internal helper, but it crosses the DB boundary; mocking
 // here keeps tests hermetic without reaching Neon.
 vi.mock("@/lib/users", () => ({
-  getOrCreateDbUser: mockGetOrCreateDbUser,
+  requireActiveDbUser: mockRequireActiveDbUser,
 }));
 
 // Mock @/db — real DB connections require DATABASE_URL + a running Neon
@@ -179,7 +180,7 @@ function setupHappyPath(likeCountAfterOp = 1) {
     emailAddresses: [{ emailAddress: "alice@example.com" }],
     imageUrl: null,
   });
-  mockGetOrCreateDbUser.mockResolvedValue(DB_USER);
+  mockRequireActiveDbUser.mockResolvedValue(DB_USER);
   // World exists
   mockDbSelectLimit.mockResolvedValue([{ id: VALID_WORLD_UUID }]);
   // Transaction runs the callback with the fake tx
@@ -213,7 +214,7 @@ describe("POST /api/worlds/[id]/likes — auth + validation", () => {
       emailAddresses: [{ emailAddress: "alice@example.com" }],
       imageUrl: null,
     });
-    mockGetOrCreateDbUser.mockResolvedValue(DB_USER);
+    mockRequireActiveDbUser.mockResolvedValue(DB_USER);
 
     const res = await callPost(INVALID_UUID);
 
@@ -229,7 +230,7 @@ describe("POST /api/worlds/[id]/likes — auth + validation", () => {
       emailAddresses: [{ emailAddress: "alice@example.com" }],
       imageUrl: null,
     });
-    mockGetOrCreateDbUser.mockResolvedValue(DB_USER);
+    mockRequireActiveDbUser.mockResolvedValue(DB_USER);
     // Empty result = world not found
     mockDbSelectLimit.mockResolvedValue([]);
 
@@ -247,8 +248,8 @@ describe("POST /api/worlds/[id]/likes — auth + validation", () => {
       emailAddresses: [{ emailAddress: "alice@example.com" }],
       imageUrl: null,
     });
-    mockGetOrCreateDbUser.mockRejectedValue(
-      new Error("connect ECONNREFUSED 127.0.0.1:5432")
+    mockRequireActiveDbUser.mockResolvedValue(
+      NextResponse.json({ error: "Database temporarily unavailable, please try again" }, { status: 503 })
     );
 
     const res = await callPost(VALID_WORLD_UUID);
@@ -278,7 +279,7 @@ describe("DELETE /api/worlds/[id]/likes — auth + validation", () => {
       emailAddresses: [{ emailAddress: "alice@example.com" }],
       imageUrl: null,
     });
-    mockGetOrCreateDbUser.mockResolvedValue(DB_USER);
+    mockRequireActiveDbUser.mockResolvedValue(DB_USER);
 
     const res = await callDelete(INVALID_UUID);
 
@@ -294,7 +295,7 @@ describe("DELETE /api/worlds/[id]/likes — auth + validation", () => {
       emailAddresses: [{ emailAddress: "alice@example.com" }],
       imageUrl: null,
     });
-    mockGetOrCreateDbUser.mockResolvedValue(DB_USER);
+    mockRequireActiveDbUser.mockResolvedValue(DB_USER);
     mockDbSelectLimit.mockResolvedValue([]);
 
     const res = await callDelete(VALID_WORLD_UUID);
@@ -311,8 +312,8 @@ describe("DELETE /api/worlds/[id]/likes — auth + validation", () => {
       emailAddresses: [{ emailAddress: "alice@example.com" }],
       imageUrl: null,
     });
-    mockGetOrCreateDbUser.mockRejectedValue(
-      new Error("connect ECONNREFUSED 127.0.0.1:5432")
+    mockRequireActiveDbUser.mockResolvedValue(
+      NextResponse.json({ error: "Database temporarily unavailable, please try again" }, { status: 503 })
     );
 
     const res = await callDelete(VALID_WORLD_UUID);
@@ -454,10 +455,43 @@ describe("DELETE /api/worlds/[id]/likes — unlike behavior", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Block D — Idempotency
+// Block D — Suspension guard
+//
+// This endpoint uses requireActiveDbUser. When that helper returns a 403
+// NextResponse (instead of a DbUser), the route must propagate it.
+//
+// We mock requireActiveDbUser to return a 403 response directly — this tests
+// the guard behavior without needing a real suspended-user DB fixture.
 // ---------------------------------------------------------------------------
 
-describe("likes idempotency", () => {
+describe("POST /api/worlds/[id]/likes — suspension guard", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it("returns 403 when requireActiveDbUser signals the caller is suspended", async () => {
+    mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
+    mockCurrentUser.mockResolvedValue({
+      id: CLERK_USER_ID,
+      username: "alice",
+      emailAddresses: [{ emailAddress: "alice@example.com" }],
+      imageUrl: null,
+    });
+    // requireActiveDbUser returns a 403 NextResponse for suspended users
+    mockRequireActiveDbUser.mockResolvedValue(
+      NextResponse.json({ error: "Account suspended" }, { status: 403 })
+    );
+
+    const res = await callPost(VALID_WORLD_UUID);
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ error: expect.any(String) });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Block E — Idempotency
+// ---------------------------------------------------------------------------
+
+describe("POST/DELETE /api/worlds/[id]/likes — idempotency", () => {
   beforeEach(() => vi.resetAllMocks());
 
   it("two consecutive POSTs return the same count (re-like is a no-op)", async () => {

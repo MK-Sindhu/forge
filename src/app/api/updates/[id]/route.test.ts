@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { NextResponse } from "next/server";
 
 // ---------------------------------------------------------------------------
 // Mock hoisting
@@ -10,7 +11,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const {
   mockAuth,
   mockCurrentUser,
-  mockGetOrCreateDbUser,
+  mockRequireActiveDbUser,
   // Controls the terminal .limit(1) call on the join chain:
   //   db.select({updateId, worldOwnerId})
   //     .from(worldUpdates)
@@ -27,8 +28,8 @@ const {
   mockAuth: vi.fn(),
   // External boundary: real Clerk calls require signed cookies + network.
   mockCurrentUser: vi.fn(),
-  // External boundary: getOrCreateDbUser hits the DB.
-  mockGetOrCreateDbUser: vi.fn(),
+  // External boundary: requireActiveDbUser hits the DB.
+  mockRequireActiveDbUser: vi.fn(),
   mockJoinLimit: vi.fn(),
   mockDbUpdateReturning: vi.fn(),
   mockDbDeleteWhere: vi.fn(),
@@ -42,7 +43,7 @@ vi.mock("@clerk/nextjs/server", () => ({
 
 // Mock @/lib/users — prevents real DB upsert for user bootstrap.
 vi.mock("@/lib/users", () => ({
-  getOrCreateDbUser: mockGetOrCreateDbUser,
+  requireActiveDbUser: mockRequireActiveDbUser,
 }));
 
 // Mock @/db — prevents real DB connections.
@@ -149,7 +150,7 @@ function callDelete(updateId: string) {
 function setupAuthAsOwner() {
   mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
   mockCurrentUser.mockResolvedValue(CLERK_USER_STUB);
-  mockGetOrCreateDbUser.mockResolvedValue({
+  mockRequireActiveDbUser.mockResolvedValue({
     id: WORLD_OWNER_DB_ID,
     clerkId: CLERK_USER_ID,
     username: "alice",
@@ -163,7 +164,7 @@ function setupAuthAsOwner() {
 function setupAuthAsNonOwner() {
   mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
   mockCurrentUser.mockResolvedValue(CLERK_USER_STUB);
-  mockGetOrCreateDbUser.mockResolvedValue({
+  mockRequireActiveDbUser.mockResolvedValue({
     id: NON_OWNER_DB_ID,
     clerkId: CLERK_USER_ID,
     username: "bob",
@@ -211,8 +212,8 @@ describe("PATCH /api/updates/[id] — DB bootstrap error", () => {
   it("returns 503 when getOrCreateDbUser throws a DB connection error", async () => {
     mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
     mockCurrentUser.mockResolvedValue(CLERK_USER_STUB);
-    mockGetOrCreateDbUser.mockRejectedValue(
-      new Error("connect ECONNREFUSED 127.0.0.1:5432")
+    mockRequireActiveDbUser.mockResolvedValue(
+      NextResponse.json({ error: "Database temporarily unavailable, please try again" }, { status: 503 })
     );
 
     const res = await callPatch(VALID_UPDATE_UUID);
@@ -224,7 +225,9 @@ describe("PATCH /api/updates/[id] — DB bootstrap error", () => {
   it("returns 400 when the Clerk user has no email", async () => {
     mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
     mockCurrentUser.mockResolvedValue(CLERK_USER_STUB);
-    mockGetOrCreateDbUser.mockRejectedValue(new Error("no email"));
+    mockRequireActiveDbUser.mockResolvedValue(
+      NextResponse.json({ error: "No email on Clerk user" }, { status: 400 })
+    );
 
     const res = await callPatch(VALID_UPDATE_UUID);
 
@@ -383,8 +386,8 @@ describe("DELETE /api/updates/[id] — DB bootstrap error", () => {
   it("returns 503 when getOrCreateDbUser throws a DB connection error", async () => {
     mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
     mockCurrentUser.mockResolvedValue(CLERK_USER_STUB);
-    mockGetOrCreateDbUser.mockRejectedValue(
-      new Error("connect ECONNREFUSED 127.0.0.1:5432")
+    mockRequireActiveDbUser.mockResolvedValue(
+      NextResponse.json({ error: "Database temporarily unavailable, please try again" }, { status: 503 })
     );
 
     const res = await callDelete(VALID_UPDATE_UUID);

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { NextResponse } from "next/server";
 
 // ---------------------------------------------------------------------------
 // Mock hoisting
@@ -10,7 +11,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const {
   mockAuth,
   mockCurrentUser,
-  mockGetOrCreateDbUser,
+  mockRequireActiveDbUser,
   mockDbSelectLimit,
   mockDbInsertValues,
   mockDbDeleteWhere,
@@ -19,9 +20,9 @@ const {
   // External boundary: currentUser() fetches the full Clerk user object over
   // the network. Never want real Clerk calls in unit tests.
   mockCurrentUser: vi.fn(),
-  // External boundary: getOrCreateDbUser hits the DB; mocked so tests can
+  // External boundary: requireActiveDbUser hits the DB; mocked so tests can
   // inject a pre-built user row or simulate DB errors without a real connection.
-  mockGetOrCreateDbUser: vi.fn(),
+  mockRequireActiveDbUser: vi.fn(),
   // Controls what db.select()...limit() returns for the world existence check.
   mockDbSelectLimit: vi.fn(),
   // Spy on the insert → values chain (captures the values passed to insert).
@@ -40,7 +41,7 @@ vi.mock("@clerk/nextjs/server", () => ({
 // Mock @/lib/users — avoids a real DB lookup + insert for user bootstrap.
 // This module crosses the DB boundary; mocking keeps tests hermetic.
 vi.mock("@/lib/users", () => ({
-  getOrCreateDbUser: mockGetOrCreateDbUser,
+  requireActiveDbUser: mockRequireActiveDbUser,
 }));
 
 // Mock @/db — real DB connections require DATABASE_URL + a running Neon
@@ -153,7 +154,7 @@ function callDelete(worldId: string) {
 function setupHappyPath() {
   mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
   mockCurrentUser.mockResolvedValue(CLERK_USER);
-  mockGetOrCreateDbUser.mockResolvedValue(USER_DB_ROW);
+  mockRequireActiveDbUser.mockResolvedValue(USER_DB_ROW);
   // World found by id lookup
   mockDbSelectLimit.mockResolvedValue([WORLD_ROW]);
 }
@@ -177,7 +178,7 @@ describe("POST /api/worlds/[id]/repost — validation + auth", () => {
   it("returns 400 for a non-UUID world id", async () => {
     mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
     mockCurrentUser.mockResolvedValue(CLERK_USER);
-    mockGetOrCreateDbUser.mockResolvedValue(USER_DB_ROW);
+    mockRequireActiveDbUser.mockResolvedValue(USER_DB_ROW);
 
     const res = await callPost(INVALID_ID);
 
@@ -188,8 +189,8 @@ describe("POST /api/worlds/[id]/repost — validation + auth", () => {
   it("returns 503 when getOrCreateDbUser throws a DB connection error", async () => {
     mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
     mockCurrentUser.mockResolvedValue(CLERK_USER);
-    mockGetOrCreateDbUser.mockRejectedValue(
-      new Error("connect ECONNREFUSED 127.0.0.1:5432")
+    mockRequireActiveDbUser.mockResolvedValue(
+      NextResponse.json({ error: "Database temporarily unavailable, please try again" }, { status: 503 })
     );
 
     const res = await callPost(WORLD_ID);
@@ -201,8 +202,8 @@ describe("POST /api/worlds/[id]/repost — validation + auth", () => {
   it("returns 400 when Clerk user has no email", async () => {
     mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
     mockCurrentUser.mockResolvedValue(CLERK_USER);
-    mockGetOrCreateDbUser.mockRejectedValue(
-      new Error("no email on Clerk user")
+    mockRequireActiveDbUser.mockResolvedValue(
+      NextResponse.json({ error: "No email on Clerk user" }, { status: 400 })
     );
 
     const res = await callPost(WORLD_ID);
@@ -214,7 +215,7 @@ describe("POST /api/worlds/[id]/repost — validation + auth", () => {
   it("returns 404 when the world does not exist", async () => {
     mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
     mockCurrentUser.mockResolvedValue(CLERK_USER);
-    mockGetOrCreateDbUser.mockResolvedValue(USER_DB_ROW);
+    mockRequireActiveDbUser.mockResolvedValue(USER_DB_ROW);
     // Empty array = world not found
     mockDbSelectLimit.mockResolvedValue([]);
 
@@ -240,7 +241,7 @@ describe("DELETE /api/worlds/[id]/repost — validation + auth", () => {
   it("returns 400 for a non-UUID world id", async () => {
     mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
     mockCurrentUser.mockResolvedValue(CLERK_USER);
-    mockGetOrCreateDbUser.mockResolvedValue(USER_DB_ROW);
+    mockRequireActiveDbUser.mockResolvedValue(USER_DB_ROW);
 
     const res = await callDelete(INVALID_ID);
 
@@ -251,7 +252,7 @@ describe("DELETE /api/worlds/[id]/repost — validation + auth", () => {
   it("returns 404 when the world does not exist", async () => {
     mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
     mockCurrentUser.mockResolvedValue(CLERK_USER);
-    mockGetOrCreateDbUser.mockResolvedValue(USER_DB_ROW);
+    mockRequireActiveDbUser.mockResolvedValue(USER_DB_ROW);
     mockDbSelectLimit.mockResolvedValue([]);
 
     const res = await callDelete(WORLD_ID);
@@ -358,7 +359,7 @@ describe("POST /api/worlds/[id]/repost — self-repost is allowed", () => {
     // confirm the world exists.
     mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
     mockCurrentUser.mockResolvedValue(CLERK_USER);
-    mockGetOrCreateDbUser.mockResolvedValue(USER_DB_ROW);
+    mockRequireActiveDbUser.mockResolvedValue(USER_DB_ROW);
     // World exists and (for spec clarity) is owned by the same user.
     mockDbSelectLimit.mockResolvedValue([{ id: WORLD_ID }]);
 

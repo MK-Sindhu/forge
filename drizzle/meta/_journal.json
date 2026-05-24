@@ -36,6 +36,13 @@
       "when": 1779548000000,
       "tag": "0004_slice5_world_updates",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1779552000000,
+      "tag": "0005_slice6_moderation",
+      "breakpoints": true
     }
   ]
 }

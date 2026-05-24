@@ -11,6 +11,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const {
   mockAuth,
   mockCurrentUser,
+  mockRequireActiveDbUser,
   mockHeadObject,
   mockPublicUrlFor,
   mockUserLookup,
@@ -22,6 +23,8 @@ const {
   mockAuth: vi.fn(),
   // External boundary: currentUser() fetches the full Clerk user object.
   mockCurrentUser: vi.fn(),
+  // External boundary: requireActiveDbUser resolves the DB user + suspension check.
+  mockRequireActiveDbUser: vi.fn(),
   // External boundary: real headObject calls the AWS SDK against Cloudflare R2.
   // Mocked to return predictable { exists, contentLength } without network calls.
   mockHeadObject: vi.fn(),
@@ -45,6 +48,11 @@ const {
 vi.mock("@clerk/nextjs/server", () => ({
   auth: mockAuth,
   currentUser: mockCurrentUser,
+}));
+
+// Mock @/lib/users — avoids a real DB lookup for user bootstrap.
+vi.mock("@/lib/users", () => ({
+  requireActiveDbUser: mockRequireActiveDbUser,
 }));
 
 // Mock @/lib/r2 — real calls need Cloudflare R2 credentials + network access.
@@ -178,13 +186,16 @@ function makeRequest(body: unknown, rawBody?: string): Request {
 function setupHappyPath(userRow = DB_USER_NO_TOS) {
   mockAuth.mockResolvedValue({ userId: VALID_USER_ID });
 
-  // currentUser() is called by getOrCreateDbUser inside POST /api/worlds.
+  // currentUser() is called before requireActiveDbUser inside POST /api/worlds.
   mockCurrentUser.mockResolvedValue({
     id: VALID_USER_ID,
     username: "alice",
     emailAddresses: [{ emailAddress: "alice@example.com" }],
     imageUrl: null,
   });
+
+  // requireActiveDbUser returns the DB user row directly.
+  mockRequireActiveDbUser.mockResolvedValue(userRow);
 
   // The route HEADs the GLB key and each media item key.
   // Return success for any key under the valid user/world prefix; fail otherwise.
@@ -212,8 +223,6 @@ function setupHappyPath(userRow = DB_USER_NO_TOS) {
   mockPublicUrlFor.mockImplementation(
     (bucket: string, key: string) => `https://cdn.example.com/${bucket}/${key}`
   );
-
-  mockUserLookup.mockResolvedValue([userRow]);
 
   // Default transaction: runs the callback with a fake tx object that routes
   // insert/update calls into mockTxInsert / mockTxUpdate so tests can assert them.
@@ -268,6 +277,8 @@ describe("POST /api/worlds — Auth", () => {
       emailAddresses: [{ emailAddress: "alice@example.com" }],
       imageUrl: null,
     });
+    // requireActiveDbUser handles the bootstrap — returns the user row directly.
+    mockRequireActiveDbUser.mockResolvedValue(BOOTSTRAPPED_USER);
     // Must pass the HEAD checks so the route reaches the user-bootstrap step.
     mockHeadObject.mockImplementation(
       ({ bucket, objectKey }: { bucket: string; objectKey: string }) => {
@@ -283,9 +294,6 @@ describe("POST /api/worlds — Auth", () => {
     mockPublicUrlFor.mockImplementation(
       (bucket: string, key: string) => `https://cdn.example.com/${bucket}/${key}`
     );
-    mockUserLookup.mockResolvedValue([]); // empty → no existing DB row
-    // Bootstrap INSERT returns the newly created user row.
-    mockUserInsert.mockResolvedValue([BOOTSTRAPPED_USER]);
     // Transaction must succeed for the world to be created.
     mockTransaction.mockImplementation(
       async (callback: (tx: unknown) => Promise<unknown>) => {
@@ -311,11 +319,9 @@ describe("POST /api/worlds — Auth", () => {
 
     const res = await POST(makeRequest(makeValidBody()));
 
-    // The route now bootstraps the user row instead of returning 401.
+    // The route bootstraps the user row (via requireActiveDbUser) and returns 201.
     expect(res.status).toBe(201);
     expect(await res.json()).toMatchObject({ worldId: VALID_WORLD_ID });
-    // The user INSERT must have been called (bootstrap happened).
-    expect(mockUserInsert).toHaveBeenCalledOnce();
   });
 });
 
@@ -672,7 +678,7 @@ describe("POST /api/worlds — Success path + transaction integrity", () => {
 
   it("sets users.tosAcceptedAt when it was previously null", async () => {
     // DB_USER_NO_TOS has tosAcceptedAt: null — should trigger the update.
-    mockUserLookup.mockResolvedValue([DB_USER_NO_TOS]);
+    mockRequireActiveDbUser.mockResolvedValue(DB_USER_NO_TOS);
 
     await POST(makeRequest(makeValidBody()));
 
@@ -685,7 +691,7 @@ describe("POST /api/worlds — Success path + transaction integrity", () => {
 
   it("does NOT update users.tosAcceptedAt when it was already set", async () => {
     // DB_USER_WITH_TOS already has a tosAcceptedAt — no update should happen.
-    mockUserLookup.mockResolvedValue([DB_USER_WITH_TOS]);
+    mockRequireActiveDbUser.mockResolvedValue(DB_USER_WITH_TOS);
 
     await POST(makeRequest(makeValidBody()));
 

@@ -6,9 +6,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // resolves. vi.hoisted() runs at the top of the module scope, before imports.
 // ---------------------------------------------------------------------------
 
-const { mockAuth, mockGetPresignedPutUrl, mockBuildGlbKey, mockBuildThumbnailKey, mockBuildMediaKey } =
+const { mockAuth, mockCurrentUser, mockRequireActiveDbUser, mockGetPresignedPutUrl, mockBuildGlbKey, mockBuildThumbnailKey, mockBuildMediaKey } =
   vi.hoisted(() => ({
     mockAuth: vi.fn(),
+    // External boundary: currentUser() fetches the full Clerk user object.
+    mockCurrentUser: vi.fn(),
+    // External boundary: requireActiveDbUser resolves the DB user + suspension check.
+    mockRequireActiveDbUser: vi.fn(),
     // External boundary: real getPresignedPutUrl would call AWS SDK + Cloudflare R2.
     // We mock it to return a predictable URL without any network calls.
     mockGetPresignedPutUrl: vi.fn(),
@@ -24,6 +28,12 @@ const { mockAuth, mockGetPresignedPutUrl, mockBuildGlbKey, mockBuildThumbnailKey
 // valid Clerk environment which is unavailable in the test runner.
 vi.mock("@clerk/nextjs/server", () => ({
   auth: mockAuth,
+  currentUser: mockCurrentUser,
+}));
+
+// Mock @/lib/users — prevents real DB upsert for user bootstrap.
+vi.mock("@/lib/users", () => ({
+  requireActiveDbUser: mockRequireActiveDbUser,
 }));
 
 // Mock @/lib/r2 — external boundary (AWS SDK + Cloudflare R2 credentials are
@@ -91,6 +101,8 @@ describe("POST /api/uploads/sign — Body validation", () => {
     vi.resetAllMocks();
     // Authenticated for all body-validation tests — auth failures are Block A.
     mockAuth.mockResolvedValue({ userId: VALID_USER_ID });
+    mockCurrentUser.mockResolvedValue({ id: VALID_USER_ID });
+    mockRequireActiveDbUser.mockResolvedValue({ id: "db-user-id", suspendedAt: null });
   });
 
   it("returns 400 when body is invalid JSON", async () => {
@@ -230,6 +242,8 @@ describe("POST /api/uploads/sign — image/video uploads (Slice 2)", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mockAuth.mockResolvedValue({ userId: VALID_USER_ID });
+    mockCurrentUser.mockResolvedValue({ id: VALID_USER_ID });
+    mockRequireActiveDbUser.mockResolvedValue({ id: "db-user-id", suspendedAt: null });
     mockGetPresignedPutUrl.mockResolvedValue(PRESIGNED_URL);
     mockBuildMediaKey.mockImplementation(
       (userId: string, worldId: string, mediaId: string, ext: string) =>
@@ -312,6 +326,8 @@ describe("POST /api/uploads/sign — Per-kind content type validation", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mockAuth.mockResolvedValue({ userId: VALID_USER_ID });
+    mockCurrentUser.mockResolvedValue({ id: VALID_USER_ID });
+    mockRequireActiveDbUser.mockResolvedValue({ id: "db-user-id", suspendedAt: null });
     mockGetPresignedPutUrl.mockResolvedValue(PRESIGNED_URL);
     mockBuildGlbKey.mockImplementation(
       (userId: string, worldId: string) => `worlds/${userId}/${worldId}/world.glb`
@@ -421,6 +437,8 @@ describe("POST /api/uploads/sign — Per-kind size cap", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mockAuth.mockResolvedValue({ userId: VALID_USER_ID });
+    mockCurrentUser.mockResolvedValue({ id: VALID_USER_ID });
+    mockRequireActiveDbUser.mockResolvedValue({ id: "db-user-id", suspendedAt: null });
     mockGetPresignedPutUrl.mockResolvedValue(PRESIGNED_URL);
     mockBuildGlbKey.mockImplementation(
       (userId: string, worldId: string) => `worlds/${userId}/${worldId}/world.glb`
@@ -496,6 +514,8 @@ describe("POST /api/uploads/sign — Successful sign", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mockAuth.mockResolvedValue({ userId: VALID_USER_ID });
+    mockCurrentUser.mockResolvedValue({ id: VALID_USER_ID });
+    mockRequireActiveDbUser.mockResolvedValue({ id: "db-user-id", suspendedAt: null });
     mockGetPresignedPutUrl.mockResolvedValue(PRESIGNED_URL);
     mockBuildGlbKey.mockImplementation(
       (userId: string, worldId: string) => `worlds/${userId}/${worldId}/world.glb`

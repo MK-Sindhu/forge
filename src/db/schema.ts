@@ -3,9 +3,11 @@ import {
   uuid,
   text,
   integer,
+  boolean,
   timestamp,
   index,
   primaryKey,
+  unique,
   check,
 } from "drizzle-orm/pg-core";
 import { relations, sql, desc } from "drizzle-orm";
@@ -21,6 +23,8 @@ export const users = pgTable("users", {
   avatarUrl: text("avatar_url"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   tosAcceptedAt: timestamp("tos_accepted_at", { withTimezone: true }),
+  isAdmin: boolean("is_admin").notNull().default(false),
+  suspendedAt: timestamp("suspended_at", { withTimezone: true }),
 });
 
 // ---------------------------------------------------------------------------
@@ -129,6 +133,8 @@ export const usersRelations = relations(users, ({ many }) => ({
   // Slice 4 — engagement
   comments: many(comments),
   reposts: many(reposts),
+  // Slice 6 — moderation
+  reports: many(reports, { relationName: "reporter" }), // reports filed by this user
 }));
 
 export const worldsRelations = relations(worlds, ({ one, many }) => ({
@@ -140,6 +146,8 @@ export const worldsRelations = relations(worlds, ({ one, many }) => ({
   reposts: many(reposts),
   // Slice 5 — world updates timeline
   updates: many(worldUpdates),
+  // Slice 6 — moderation
+  reports: many(reports),
 }));
 
 export const worldMediaRelations = relations(worldMedia, ({ one }) => ({
@@ -229,6 +237,38 @@ export const worldUpdates = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// reports
+// Slice 6 — moderation. One report per (reporter, world) pair (unique constraint).
+// reason + status use CHECK constraints (same pattern as world_media.type).
+// resolved_by_id uses ON DELETE SET NULL so deleting an admin does not cascade-
+// destroy historical report records.
+// ---------------------------------------------------------------------------
+export const reports = pgTable(
+  "reports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    reporterId: uuid("reporter_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    worldId: uuid("world_id")
+      .notNull()
+      .references(() => worlds.id, { onDelete: "cascade" }),
+    reason: text("reason").notNull(),
+    body: text("body"),
+    status: text("status").notNull().default("open"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolvedById: uuid("resolved_by_id").references(() => users.id, { onDelete: "set null" }),
+  },
+  (t) => [
+    index("reports_status_created_at_idx").on(t.status, desc(t.createdAt)),
+    unique("reports_reporter_world_unique").on(t.reporterId, t.worldId),
+    check("reports_reason_check", sql`${t.reason} IN ('copyright', 'nsfw', 'abusive', 'spam', 'other')`),
+    check("reports_status_check", sql`${t.status} IN ('open', 'resolved', 'dismissed')`),
+  ]
+);
+
+// ---------------------------------------------------------------------------
 // relations (Slice 4 additions)
 // ---------------------------------------------------------------------------
 export const commentsRelations = relations(comments, ({ one }) => ({
@@ -246,4 +286,13 @@ export const repostsRelations = relations(reposts, ({ one }) => ({
 // ---------------------------------------------------------------------------
 export const worldUpdatesRelations = relations(worldUpdates, ({ one }) => ({
   world: one(worlds, { fields: [worldUpdates.worldId], references: [worlds.id] }),
+}));
+
+// ---------------------------------------------------------------------------
+// relations (Slice 6 additions)
+// ---------------------------------------------------------------------------
+export const reportsRelations = relations(reports, ({ one }) => ({
+  reporter: one(users, { fields: [reports.reporterId], references: [users.id], relationName: "reporter" }),
+  world: one(worlds, { fields: [reports.worldId], references: [worlds.id] }),
+  resolvedBy: one(users, { fields: [reports.resolvedById], references: [users.id], relationName: "resolver" }),
 }));

@@ -2,6 +2,10 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
 import { ClerkProvider, Show, UserButton } from "@clerk/nextjs";
+import { auth } from "@clerk/nextjs/server";
+import { eq } from "drizzle-orm";
+import { db } from "@/db";
+import { users } from "@/db/schema";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -19,11 +23,24 @@ export const metadata: Metadata = {
   description: "A feed-first social network for 3D world creators.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Look up isAdmin for the conditional nav link.
+  // Two cheap queries (auth + DB row) — acceptable per-request cost.
+  const { userId } = await auth();
+  let isAdmin = false;
+  if (userId) {
+    const [row] = await db
+      .select({ isAdmin: users.isAdmin })
+      .from(users)
+      .where(eq(users.clerkId, userId))
+      .limit(1);
+    isAdmin = !!row?.isAdmin;
+  }
+
   return (
     <ClerkProvider>
       <html
@@ -51,6 +68,14 @@ export default function RootLayout({
               <div className="flex items-center gap-3">
                 {/* Signed-in state */}
                 <Show when="signed-in">
+                  {isAdmin && (
+                    <Link
+                      href="/admin/reports"
+                      className="text-sm text-neutral-700 hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-neutral-100"
+                    >
+                      Admin
+                    </Link>
+                  )}
                   <Link
                     href="/upload"
                     className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 dark:focus-visible:ring-neutral-100"
@@ -80,6 +105,26 @@ export default function RootLayout({
           </header>
 
           {children}
+
+          <footer className="border-t border-neutral-200 bg-white py-6 dark:border-neutral-800 dark:bg-neutral-950">
+            <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 text-sm text-neutral-500 dark:text-neutral-500">
+              <p>FORGE — a feed of 3D worlds.</p>
+              <nav className="flex gap-4">
+                <Link
+                  href="/legal/dmca"
+                  className="hover:text-neutral-700 dark:hover:text-neutral-300"
+                >
+                  DMCA
+                </Link>
+                <Link
+                  href="/legal/terms"
+                  className="hover:text-neutral-700 dark:hover:text-neutral-300"
+                >
+                  Terms
+                </Link>
+              </nav>
+            </div>
+          </footer>
         </body>
       </html>
     </ClerkProvider>

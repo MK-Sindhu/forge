@@ -20,7 +20,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { comments, worlds } from "@/db/schema";
-import { getOrCreateDbUser } from "@/lib/users";
+import { requireActiveDbUser } from "@/lib/users";
 
 // ---------------------------------------------------------------------------
 // Param validation
@@ -57,22 +57,9 @@ export async function DELETE(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let currentDbUser: Awaited<ReturnType<typeof getOrCreateDbUser>>;
-  try {
-    currentDbUser = await getOrCreateDbUser(clerkUser);
-  } catch (err) {
-    if (err instanceof Error && err.message.includes("no email")) {
-      return NextResponse.json(
-        { error: "No email on Clerk user" },
-        { status: 400 }
-      );
-    }
-    console.error("[DELETE /api/comments/[id]] getOrCreateDbUser error:", err);
-    return NextResponse.json(
-      { error: "Database temporarily unavailable, please try again" },
-      { status: 503 }
-    );
-  }
+  const userResult = await requireActiveDbUser(clerkUser);
+  if (userResult instanceof NextResponse) return userResult;
+  const currentDbUser = userResult;
 
   // 4. Fetch comment + world owner in one join
   //    SQL: SELECT comments.user_id, worlds.user_id

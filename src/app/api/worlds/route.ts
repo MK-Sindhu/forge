@@ -32,7 +32,7 @@ import { z } from "zod";
 import { dbPool } from "@/db";
 import { worlds, worldMedia, users } from "@/db/schema";
 import { headObject, publicUrlFor } from "@/lib/r2";
-import { getOrCreateDbUser } from "@/lib/users";
+import { requireActiveDbUser } from "@/lib/users";
 
 // ---------------------------------------------------------------------------
 // Request schema
@@ -198,18 +198,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let dbUser;
-  try {
-    dbUser = await getOrCreateDbUser(clerkUser);
-  } catch (err) {
-    if (err instanceof Error && err.message.includes("no email")) {
-      return NextResponse.json(
-        { error: "No email on Clerk user" },
-        { status: 400 },
-      );
-    }
-    throw err;
-  }
+  const userResult = await requireActiveDbUser(clerkUser);
+  if (userResult instanceof NextResponse) return userResult;
+  const dbUser = userResult;
 
   // --- 8. Transaction: insert worlds + world_media, optionally set tos_accepted_at
   await dbPool.transaction(async (tx) => {

@@ -24,7 +24,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { worldUpdates, worlds } from "@/db/schema";
-import { getOrCreateDbUser, type DbUser } from "@/lib/users";
+import { requireActiveDbUser, type DbUser } from "@/lib/users";
 
 // ---------------------------------------------------------------------------
 // Validation schemas
@@ -70,22 +70,9 @@ async function resolvePrelude(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let dbUser: DbUser;
-  try {
-    dbUser = await getOrCreateDbUser(clerkUser);
-  } catch (err) {
-    if (err instanceof Error && err.message.includes("no email")) {
-      return NextResponse.json(
-        { error: "No email on Clerk user" },
-        { status: 400 }
-      );
-    }
-    console.error("[/api/updates/[id]] getOrCreateDbUser error:", err);
-    return NextResponse.json(
-      { error: "Database temporarily unavailable, please try again" },
-      { status: 503 }
-    );
-  }
+  const userResult = await requireActiveDbUser(clerkUser);
+  if (userResult instanceof NextResponse) return userResult;
+  const dbUser: DbUser = userResult;
 
   // 4. Look up update + world owner in a single join
   const [row] = await db

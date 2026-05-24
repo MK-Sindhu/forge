@@ -16,7 +16,7 @@ import { eq, and, lt, desc } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { worlds, worldUpdates } from "@/db/schema";
-import { getOrCreateDbUser } from "@/lib/users";
+import { requireActiveDbUser } from "@/lib/users";
 
 // ---------------------------------------------------------------------------
 // Shared validation
@@ -100,25 +100,9 @@ export async function POST(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let dbUser: Awaited<ReturnType<typeof getOrCreateDbUser>>;
-  try {
-    dbUser = await getOrCreateDbUser(clerkUser);
-  } catch (err) {
-    if (err instanceof Error && err.message.includes("no email")) {
-      return NextResponse.json(
-        { error: "No email on Clerk user" },
-        { status: 400 }
-      );
-    }
-    console.error(
-      "[POST /api/worlds/[id]/updates] getOrCreateDbUser error:",
-      err
-    );
-    return NextResponse.json(
-      { error: "Database temporarily unavailable, please try again" },
-      { status: 503 }
-    );
-  }
+  const userResult = await requireActiveDbUser(clerkUser);
+  if (userResult instanceof NextResponse) return userResult;
+  const dbUser = userResult;
 
   // 4. Validate world id param + confirm world exists (returns ownerId too)
   const worldOrError = await getWorldOr404(rawId);

@@ -13,7 +13,7 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { eq, and } from "drizzle-orm";
 import { db } from "@/db";
 import { users, follows } from "@/db/schema";
-import { getOrCreateDbUser } from "@/lib/users";
+import { requireActiveDbUser } from "@/lib/users";
 
 // ---------------------------------------------------------------------------
 // Prelude types
@@ -55,22 +55,9 @@ async function resolvePrelude(
   }
 
   // 3. Resolve (or create) the DB row for the authenticated user (the follower)
-  let followerRow;
-  try {
-    followerRow = await getOrCreateDbUser(clerkUser);
-  } catch (err) {
-    if (err instanceof Error && err.message.includes("no email")) {
-      return NextResponse.json(
-        { error: "No email on Clerk user" },
-        { status: 400 }
-      );
-    }
-    console.error("[/api/users/[username]/follow] bootstrap error:", err);
-    return NextResponse.json(
-      { error: "Database temporarily unavailable" },
-      { status: 503 }
-    );
-  }
+  const userResult = await requireActiveDbUser(clerkUser);
+  if (userResult instanceof NextResponse) return userResult;
+  const followerRow = userResult;
 
   // 4. Look up the followee by username
   const [followee] = await db

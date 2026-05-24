@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { NextResponse } from "next/server";
 
 // ---------------------------------------------------------------------------
 // Mock hoisting
@@ -10,7 +11,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const {
   mockAuth,
   mockCurrentUser,
-  mockGetOrCreateDbUser,
+  mockRequireActiveDbUser,
   // Controls the terminal .limit(1) call on the join chain:
   //   db.select().from(comments).innerJoin(worlds,...).where().limit(1)
   // Returns [row] (found) or [] (not found).
@@ -21,8 +22,8 @@ const {
   mockAuth: vi.fn(),
   // External boundary: real Clerk calls require signed cookies + network.
   mockCurrentUser: vi.fn(),
-  // External boundary: getOrCreateDbUser hits the DB.
-  mockGetOrCreateDbUser: vi.fn(),
+  // External boundary: requireActiveDbUser hits the DB.
+  mockRequireActiveDbUser: vi.fn(),
   mockJoinLimit: vi.fn(),
   mockDbDeleteWhere: vi.fn(),
 }));
@@ -35,7 +36,7 @@ vi.mock("@clerk/nextjs/server", () => ({
 
 // Mock @/lib/users — prevents real DB upsert for user bootstrap.
 vi.mock("@/lib/users", () => ({
-  getOrCreateDbUser: mockGetOrCreateDbUser,
+  requireActiveDbUser: mockRequireActiveDbUser,
 }));
 
 // Mock @/db — prevents real DB connections.
@@ -124,7 +125,7 @@ function callDelete(commentId: string) {
 function setupAuthAndUser(dbUserId: string = AUTHOR_DB_ID) {
   mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
   mockCurrentUser.mockResolvedValue(CLERK_USER_STUB);
-  mockGetOrCreateDbUser.mockResolvedValue({
+  mockRequireActiveDbUser.mockResolvedValue({
     id: dbUserId,
     clerkId: CLERK_USER_ID,
     username: "alice",
@@ -171,8 +172,8 @@ describe("DELETE /api/comments/[id] — DB user bootstrap error", () => {
   it("returns 503 when getOrCreateDbUser throws a DB error", async () => {
     mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
     mockCurrentUser.mockResolvedValue(CLERK_USER_STUB);
-    mockGetOrCreateDbUser.mockRejectedValue(
-      new Error("connect ECONNREFUSED 127.0.0.1:5432")
+    mockRequireActiveDbUser.mockResolvedValue(
+      NextResponse.json({ error: "Database temporarily unavailable, please try again" }, { status: 503 })
     );
 
     const res = await callDelete(VALID_COMMENT_UUID);

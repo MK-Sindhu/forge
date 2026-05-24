@@ -17,9 +17,10 @@
  */
 
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import { z } from "zod";
 import { getPresignedPutUrl, buildGlbKey, buildThumbnailKey, buildMediaKey } from "@/lib/r2";
+import { requireActiveDbUser } from "@/lib/users";
 
 // ---------------------------------------------------------------------------
 // Per-kind validation rules
@@ -104,6 +105,17 @@ export async function POST(req: Request) {
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  // --- Suspension check -------------------------------------------------------
+  // Fetch the full Clerk user and resolve the DB row to enforce the suspension
+  // guard. The Clerk userId (from auth()) is still used for R2 key construction
+  // below — that reference is stable and unaffected by this lookup.
+  const clerkUser = await currentUser();
+  if (!clerkUser) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const userResult = await requireActiveDbUser(clerkUser);
+  if (userResult instanceof NextResponse) return userResult;
 
   // --- Parse + validate body --------------------------------------------------
   let parsed: z.infer<typeof BodySchema>;

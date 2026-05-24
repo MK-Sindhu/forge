@@ -10,6 +10,7 @@ import MediaCarousel from "@/components/media-carousel/MediaCarousel";
 import { LikeButton } from "@/components/like-button/LikeButton";
 import { RepostButton } from "@/components/repost-button/RepostButton";
 import { ShareButton } from "@/components/share-button/ShareButton";
+import { ReportButton } from "@/components/report-button/ReportButton";
 import CommentsSection from "@/components/comments-section/CommentsSection";
 import UpdatesTimeline from "@/components/updates-timeline/UpdatesTimeline";
 
@@ -120,6 +121,7 @@ export default async function WorldPage(
           signedIn={signedIn}
         />
         <ShareButton title={world.title} />
+        <ReportButton worldId={world.id} signedIn={signedIn} />
         <span className="text-sm text-neutral-500 dark:text-neutral-500">
           {world.views} {world.views === 1 ? "view" : "views"}
         </span>

@@ -17,7 +17,7 @@ import { eq, and, count } from "drizzle-orm";
 import { z } from "zod";
 import { db, dbPool } from "@/db";
 import { worlds, likes } from "@/db/schema";
-import { getOrCreateDbUser, type DbUser } from "@/lib/users";
+import { requireActiveDbUser, type DbUser } from "@/lib/users";
 import type { PgTransaction } from "drizzle-orm/pg-core";
 import type { NeonQueryResultHKT } from "drizzle-orm/neon-serverless";
 
@@ -60,22 +60,9 @@ async function resolvePrelude(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let dbUser: DbUser;
-  try {
-    dbUser = await getOrCreateDbUser(clerkUser);
-  } catch (err) {
-    if (err instanceof Error && err.message.includes("no email")) {
-      return NextResponse.json(
-        { error: "No email on Clerk user" },
-        { status: 400 }
-      );
-    }
-    console.error("[/api/worlds/[id]/likes] getOrCreateDbUser error:", err);
-    return NextResponse.json(
-      { error: "Database temporarily unavailable, please try again" },
-      { status: 503 }
-    );
-  }
+  const userResult = await requireActiveDbUser(clerkUser);
+  if (userResult instanceof NextResponse) return userResult;
+  const dbUser: DbUser = userResult;
 
   // 4. Confirm world exists
   const worldRows = await db

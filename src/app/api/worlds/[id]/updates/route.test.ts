@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { NextResponse } from "next/server";
 
 // ---------------------------------------------------------------------------
 // Mock hoisting
@@ -10,7 +11,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const {
   mockAuth,
   mockCurrentUser,
-  mockGetOrCreateDbUser,
+  mockRequireActiveDbUser,
   // Controls db.select()...limit() — world-existence + ownerId lookup for POST
   // and world-existence check for GET.
   mockDbSelectLimit,
@@ -22,8 +23,8 @@ const {
   mockAuth: vi.fn(),
   // External boundary: Clerk's auth() and currentUser() make network calls.
   mockCurrentUser: vi.fn(),
-  // External boundary: getOrCreateDbUser performs a DB upsert.
-  mockGetOrCreateDbUser: vi.fn(),
+  // External boundary: requireActiveDbUser performs a DB upsert + suspension check.
+  mockRequireActiveDbUser: vi.fn(),
   mockDbSelectLimit: vi.fn(),
   mockDbInsertReturning: vi.fn(),
   mockFindMany: vi.fn(),
@@ -37,7 +38,7 @@ vi.mock("@clerk/nextjs/server", () => ({
 
 // Mock @/lib/users — avoids a real DB round-trip for user bootstrap.
 vi.mock("@/lib/users", () => ({
-  getOrCreateDbUser: mockGetOrCreateDbUser,
+  requireActiveDbUser: mockRequireActiveDbUser,
 }));
 
 // Mock @/db — real DB connections require DATABASE_URL + a live Neon instance.
@@ -149,13 +150,13 @@ function callGet(worldId: string, params: Record<string, string> = {}) {
 function setupAuthAsOwner() {
   mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
   mockCurrentUser.mockResolvedValue(CLERK_USER_STUB);
-  mockGetOrCreateDbUser.mockResolvedValue(DB_USER_OWNER);
+  mockRequireActiveDbUser.mockResolvedValue(DB_USER_OWNER);
 }
 
 function setupAuthAsNonOwner() {
   mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
   mockCurrentUser.mockResolvedValue(CLERK_USER_STUB);
-  mockGetOrCreateDbUser.mockResolvedValue({ ...DB_USER_OWNER, id: OTHER_USER_ID });
+  mockRequireActiveDbUser.mockResolvedValue({ ...DB_USER_OWNER, id: OTHER_USER_ID });
 }
 
 // ============================================================================
@@ -228,8 +229,8 @@ describe("POST /api/worlds/[id]/updates — DB bootstrap error", () => {
   it("returns 503 when getOrCreateDbUser throws a DB connection error", async () => {
     mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
     mockCurrentUser.mockResolvedValue(CLERK_USER_STUB);
-    mockGetOrCreateDbUser.mockRejectedValue(
-      new Error("connect ECONNREFUSED 127.0.0.1:5432")
+    mockRequireActiveDbUser.mockResolvedValue(
+      NextResponse.json({ error: "Database temporarily unavailable, please try again" }, { status: 503 })
     );
 
     const res = await callPost(VALID_WORLD_UUID);
@@ -241,7 +242,9 @@ describe("POST /api/worlds/[id]/updates — DB bootstrap error", () => {
   it("returns 400 when the Clerk user has no email", async () => {
     mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
     mockCurrentUser.mockResolvedValue(CLERK_USER_STUB);
-    mockGetOrCreateDbUser.mockRejectedValue(new Error("no email"));
+    mockRequireActiveDbUser.mockResolvedValue(
+      NextResponse.json({ error: "No email on Clerk user" }, { status: 400 })
+    );
 
     const res = await callPost(VALID_WORLD_UUID);
 

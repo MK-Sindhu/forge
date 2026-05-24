@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import type { User } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { users } from "@/db/schema";
 
@@ -49,4 +50,73 @@ export async function getOrCreateDbUser(clerkUser: User): Promise<DbUser> {
     .returning();
 
   return created;
+}
+
+/**
+ * Ensures the caller is signed in, has a DB row, AND is not suspended.
+ * Returns DbUser on success, or a NextResponse (401 / 400 / 503 / 403)
+ * ready to return from a route handler.
+ *
+ * Use this anywhere a route writes to the DB on behalf of the user.
+ * The only exception: POST /api/worlds/[id]/reports stays on the raw
+ * getOrCreateDbUser so suspended users can still file reports (anti-
+ * abuse safety valve — see plan).
+ */
+export async function requireActiveDbUser(clerkUser: User): Promise<DbUser | NextResponse> {
+  let dbUser: DbUser;
+  try {
+    dbUser = await getOrCreateDbUser(clerkUser);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("no email")) {
+      return NextResponse.json(
+        { error: "No email on Clerk user" },
+        { status: 400 }
+      );
+    }
+    console.error("[requireActiveDbUser] getOrCreateDbUser error:", err);
+    return NextResponse.json(
+      { error: "Database temporarily unavailable, please try again" },
+      { status: 503 }
+    );
+  }
+
+  if (dbUser.suspendedAt !== null) {
+    return NextResponse.json({ error: "Account suspended" }, { status: 403 });
+  }
+
+  return dbUser;
+}
+
+/**
+ * Ensures the caller is signed in AND has `is_admin === true` on their
+ * DB row. Returns the DbUser on success, or a NextResponse error
+ * (400-no-email / 503 / 403) ready to return from a route handler.
+ *
+ * Mirrors getOrCreateDbUser but adds the admin gate after the lookup.
+ * The caller is responsible for the 401 check (auth() + currentUser()) before
+ * invoking this helper.
+ */
+export async function requireAdmin(clerkUser: User): Promise<DbUser | NextResponse> {
+  let dbUser: DbUser;
+  try {
+    dbUser = await getOrCreateDbUser(clerkUser);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("no email")) {
+      return NextResponse.json(
+        { error: "No email on Clerk user" },
+        { status: 400 }
+      );
+    }
+    console.error("[requireAdmin] getOrCreateDbUser error:", err);
+    return NextResponse.json(
+      { error: "Database temporarily unavailable, please try again" },
+      { status: 503 }
+    );
+  }
+
+  if (!dbUser.isAdmin) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  return dbUser;
 }

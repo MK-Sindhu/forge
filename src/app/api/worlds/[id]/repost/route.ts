@@ -15,7 +15,7 @@ import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { worlds, reposts } from "@/db/schema";
-import { getOrCreateDbUser, type DbUser } from "@/lib/users";
+import { requireActiveDbUser, type DbUser } from "@/lib/users";
 
 // ---------------------------------------------------------------------------
 // Param validation
@@ -60,22 +60,9 @@ async function resolvePrelude(rawId: string): Promise<Prelude | PreludeError> {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let dbUser: DbUser;
-  try {
-    dbUser = await getOrCreateDbUser(clerkUser);
-  } catch (err) {
-    if (err instanceof Error && err.message.includes("no email")) {
-      return NextResponse.json(
-        { error: "No email on Clerk user" },
-        { status: 400 }
-      );
-    }
-    console.error("[/api/worlds/[id]/repost] getOrCreateDbUser error:", err);
-    return NextResponse.json(
-      { error: "Database temporarily unavailable, please try again" },
-      { status: 503 }
-    );
-  }
+  const userResult = await requireActiveDbUser(clerkUser);
+  if (userResult instanceof NextResponse) return userResult;
+  const dbUser: DbUser = userResult;
 
   // 4. Confirm world exists
   const worldRows = await db

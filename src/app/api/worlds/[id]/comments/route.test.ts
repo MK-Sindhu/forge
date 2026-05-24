@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { NextResponse } from "next/server";
 
 // ---------------------------------------------------------------------------
 // Mock hoisting
@@ -10,7 +11,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const {
   mockAuth,
   mockCurrentUser,
-  mockGetOrCreateDbUser,
+  mockRequireActiveDbUser,
   // Controls db.select()...limit() — used for the world-existence check.
   mockDbSelectLimit,
   // Controls db.insert()...returning() — used for the POST insert.
@@ -22,8 +23,8 @@ const {
   // External boundary: Clerk's auth() and currentUser() make network calls
   // to Clerk's API. Never call them for real in unit tests.
   mockCurrentUser: vi.fn(),
-  // External boundary: getOrCreateDbUser performs a DB upsert.
-  mockGetOrCreateDbUser: vi.fn(),
+  // External boundary: requireActiveDbUser performs a DB upsert + suspension check.
+  mockRequireActiveDbUser: vi.fn(),
   mockDbSelectLimit: vi.fn(),
   mockDbInsertReturning: vi.fn(),
   mockFindMany: vi.fn(),
@@ -37,7 +38,7 @@ vi.mock("@clerk/nextjs/server", () => ({
 
 // Mock @/lib/users — avoids a real DB round-trip for user bootstrap.
 vi.mock("@/lib/users", () => ({
-  getOrCreateDbUser: mockGetOrCreateDbUser,
+  requireActiveDbUser: mockRequireActiveDbUser,
 }));
 
 // Mock @/db — real DB connections require DATABASE_URL + a live Neon instance.
@@ -154,7 +155,7 @@ function callGet(worldId: string, params: Record<string, string> = {}) {
 function setupAuthAndUser() {
   mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
   mockCurrentUser.mockResolvedValue(CLERK_USER_STUB);
-  mockGetOrCreateDbUser.mockResolvedValue(DB_USER);
+  mockRequireActiveDbUser.mockResolvedValue(DB_USER);
 }
 
 // ============================================================================
@@ -249,8 +250,8 @@ describe("POST /api/worlds/[id]/comments — DB errors", () => {
   it("returns 503 when getOrCreateDbUser throws a DB error", async () => {
     mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
     mockCurrentUser.mockResolvedValue(CLERK_USER_STUB);
-    mockGetOrCreateDbUser.mockRejectedValue(
-      new Error("connect ECONNREFUSED 127.0.0.1:5432")
+    mockRequireActiveDbUser.mockResolvedValue(
+      NextResponse.json({ error: "Database temporarily unavailable, please try again" }, { status: 503 })
     );
 
     const res = await callPost(VALID_WORLD_UUID);
@@ -313,6 +314,31 @@ describe("POST /api/worlds/[id]/comments — success", () => {
     const userKeys = Object.keys(body.user).sort();
 
     expect(userKeys).toEqual(["avatarUrl", "id", "username"]);
+  });
+});
+
+// ============================================================================
+// POST /api/worlds/[id]/comments — suspension guard
+//
+// This endpoint uses requireActiveDbUser. When that helper returns a 403
+// NextResponse (instead of a DbUser), the route must propagate it.
+// ============================================================================
+
+describe("POST /api/worlds/[id]/comments — suspension guard", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it("returns 403 when requireActiveDbUser signals the caller is suspended", async () => {
+    mockAuth.mockResolvedValue({ userId: CLERK_USER_ID });
+    mockCurrentUser.mockResolvedValue(CLERK_USER_STUB);
+    // requireActiveDbUser returns a 403 NextResponse for suspended users
+    mockRequireActiveDbUser.mockResolvedValue(
+      NextResponse.json({ error: "Account suspended" }, { status: 403 })
+    );
+
+    const res = await callPost(VALID_WORLD_UUID);
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ error: expect.any(String) });
   });
 });
 
