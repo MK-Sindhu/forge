@@ -126,7 +126,7 @@ Legend: ✅ shipped + verified in prod · 🟢 shipped + deployed, not prod-smok
 | 7.1 | Tags — free-form, max 5 per world, lowercase, max 32 chars each | 🟢 |
 | 7.2 | Search — Postgres FTS (`tsvector` on title + description + tags) | 🟢 |
 | 7.3 | View counts — debounced, 1/user/world/day | 🟢 |
-| 7.4 | Trending — new feed tab, `likes × decay(age_in_hours)` | ⬜ |
+| 7.4 | Trending — new feed tab, `likes × decay(age_in_hours)` | 🟢 |
 | 7.5 | Notifications — bell icon + `/notifications`. Events: like, comment, follow, new-world-from-followee | ⬜ |
 
 **Schema additions for Slice 7:**

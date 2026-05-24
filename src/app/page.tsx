@@ -1,7 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { redirect } from "next/navigation";
-import { and, desc, eq, inArray, or } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { auth } from "@clerk/nextjs/server";
 import { db } from "@/db";
@@ -58,9 +58,11 @@ export default async function FeedPage({
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   const { tab } = await searchParams;
-  // Closed-set parse: only "following" is accepted; everything else → "recent"
-  const activeTab: "recent" | "following" =
-    tab === "following" ? "following" : "recent";
+  // Closed-set parse: "following" and "trending" accepted; everything else → "recent"
+  const activeTab: "recent" | "following" | "trending" =
+    tab === "following" ? "following" :
+    tab === "trending"  ? "trending"  :
+    "recent";
 
   // --- Auth context ----------------------------------------------------------
   const { userId: clerkUserId } = await auth();
@@ -324,6 +326,47 @@ export default async function FeedPage({
       merged.sort((a, b) => b.activityAt.getTime() - a.activityAt.getTime());
       rows = merged.slice(0, 50);
     }
+  } else if (activeTab === "trending") {
+    // ---------------------------------------------------------------------------
+    // Trending tab — ranking formula: likes_count × pow(0.5, age_hours / 24)
+    // HALF_LIFE = 24 hours: a world loses half its score every 24h regardless of likes.
+    // 30-day window cap: candidates are limited to worlds created in the last 30 days
+    // to bound future scan cost as the corpus grows.
+    // Locked decision: public (no auth gate). Purely additive — no schema or migration.
+    // ---------------------------------------------------------------------------
+    // eslint-disable-next-line react-hooks/purity
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const trendingResult = await db.query.worlds.findMany({
+      where: gt(worlds.createdAt, thirtyDaysAgo),
+      orderBy: sql`${worlds.likesCount} * pow(0.5, extract(epoch from (now() - ${worlds.createdAt})) / 3600 / 24) DESC, ${worlds.createdAt} DESC`,
+      limit: 50,
+      columns: {
+        id: true,
+        title: true,
+        likesCount: true,
+        views: true,
+        createdAt: true,
+      },
+      with: {
+        user: { columns: { username: true, avatarUrl: true } },
+        media: {
+          where: (m, { or, eq: oreq }) =>
+            or(oreq(m.type, "thumbnail"), oreq(m.type, "video")),
+          limit: 2,
+          columns: { type: true, url: true },
+        },
+        tags: { with: { tag: { columns: { name: true } } } },
+      },
+    });
+    rows = (trendingResult as unknown as Array<Omit<(typeof trendingResult)[number], "tags"> & { tags: { tag: { name: string } }[] }>).map((w) => ({
+      ...w,
+      tags: w.tags.map((wt) => ({ name: wt.tag.name })),
+      entryType: "original" as const,
+      activityAt: w.createdAt,
+      repostedBy: null,
+      updateBody: null,
+      updateId: null,
+    }));
   } else {
     // Recent tab — original behavior
     const result = await db.query.worlds.findMany({
@@ -364,15 +407,16 @@ export default async function FeedPage({
   return (
     <main className="mx-auto max-w-7xl px-4 py-8">
       <h1 className="sr-only">
-        {activeTab === "following" ? "Following" : "Recent worlds"}
+        {activeTab === "following" ? "Following" : activeTab === "trending" ? "Trending worlds" : "Recent worlds"}
       </h1>
 
-      {/* Tab bar */}
+      {/* Tab bar — order: Recent → Trending → Following */}
       <div
         className="mb-6 flex gap-1 border-b border-neutral-200 dark:border-neutral-800"
         role="tablist"
       >
         <TabLink href="/" active={activeTab === "recent"} label="Recent" />
+        <TabLink href="/?tab=trending" active={activeTab === "trending"} label="Trending" />
         {clerkUserId && (
           <TabLink
             href="/?tab=following"
@@ -526,13 +570,23 @@ function FeedCard({ world }: { world: FeedEntry }) {
 }
 
 // ---------------------------------------------------------------------------
-// ContextualEmptyState — different messages for global-empty vs following-empty
+// ContextualEmptyState — different messages for recent / trending / following
 // ---------------------------------------------------------------------------
 function ContextualEmptyState({
   activeTab,
 }: {
-  activeTab: "recent" | "following";
+  activeTab: "recent" | "following" | "trending";
 }) {
+  if (activeTab === "trending") {
+    return (
+      <div className="rounded-lg border border-dashed border-neutral-300 py-24 text-center dark:border-neutral-700">
+        <p className="text-lg font-medium text-neutral-700 dark:text-neutral-300">
+          No trending worlds yet — like some to seed the algorithm.
+        </p>
+      </div>
+    );
+  }
+
   if (activeTab === "following") {
     return (
       <div className="rounded-lg border border-dashed border-neutral-300 py-24 text-center dark:border-neutral-700">

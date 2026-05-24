@@ -64,7 +64,7 @@ src/
 
 | Route | File | Server/Client | Purpose | Slice |
 |---|---|---|---|---|
-| `/` | `src/app/page.tsx` | Server | Feed (Recent / Following tabs via `?tab=`). Cards show up to 3 tag chips + `+N more` overflow. | 1, 3, 4, 5, 7.1 |
+| `/` | `src/app/page.tsx` | Server | Feed (3 tabs via `?tab=`: Recent, Trending, Following). Cards show up to 3 tag chips + `+N more` overflow. Trending and Recent are public (no auth gate); Following redirects to sign-in if unauthenticated. | 1, 3, 4, 5, 7.1, 7.4 |
 | `/search` | `src/app/search/page.tsx` | Server (public) | Full-text search results. Reads `?q=` and/or `?tag=`. Three branches: empty state (neither), FTS query (`q` only), tag filter (`tag` only), intersection (both). Direct DB query — no API route. Cap 50 results. `search_vector` is Postgres-managed (trigger-populated, not in Drizzle schema). | 7.2 |
 | `/world/[id]` | `src/app/world/[id]/page.tsx` | Server | World viewer page (3D + metadata + carousel + updates + comments + actions). Tag chips row below title. | 1, 2, 3, 4, 5, 7.1 |
 | `/profile/[username]` | `src/app/profile/[username]/page.tsx` | Server | Profile (avatar, follower/following counts, world grid). Cards show up to 3 tag chips + `+N more` overflow. | 1, 3, 7.1 |
@@ -135,6 +135,17 @@ useEffect(() => {
 
 React 19 StrictMode intentionally unmounts + remounts components in dev. Because both the guard-check and the guard-set happen in the same synchronous tick before `fetch()` is awaited, the second mount sees `firedRef.current === true` and returns early. Setting the flag in `.then()` would leave a window where the second mount fires another fetch before the first resolves.
 
+### Trending algorithm
+
+Feed page `?tab=trending` branch in `src/app/page.tsx`:
+
+- **Formula:** `likes_count × pow(0.5, age_hours / 24)` — half-life of 24 hours.
+- **Window:** only worlds created within the last 30 days are candidates (`where gt(worlds.createdAt, thirtyDaysAgo)`), bounding scan cost as the corpus grows.
+- **Public:** no auth gate (unlike Following, no redirect). Trending tab always renders in the tab bar, regardless of sign-in state.
+- **Tie-breaker:** `createdAt DESC` secondary sort so newer worlds win when decay scores tie.
+- **Empty state:** "No trending worlds yet — like some to seed the algorithm."
+- **Locked decision:** algorithm, half-life, and 30-day cap are locked in `PROJECT.md` decision log.
+
 ### Error boundaries
 
 Use `unstable_retry` (Clerk v7 renamed `reset`). Wrap risky chunks (3D viewer, async pages).
@@ -189,8 +200,10 @@ Shipped in 7.3:
 - Feed cards now show view count alongside likes count: `{likes} likes · {views} views`.
 - Profile cards already showed view count (no change needed).
 
+Shipped in 7.4:
+- Trending tab on `/` — third tab in order Recent → Trending → Following. `?tab=trending` branch queries with `likes_count × pow(0.5, age_hours/24)` decay ordering, 30-day window cap, public (no auth gate). Empty state: "No trending worlds yet — like some to seed the algorithm." See "Trending algorithm" in Patterns.
+
 Still to come:
-- "Trending" tab on `/` (third tab alongside Recent / Following) (7.4)
 - Bell icon in `Header` with unread count badge (7.5)
 - `/notifications` page (paginated list, mark-as-read on view) (7.5)
 
