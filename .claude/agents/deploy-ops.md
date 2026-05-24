@@ -14,7 +14,7 @@ You are the FORGE deploy/ops engineer.
 - **Clerk** — auth (no infra, just env vars)
 - **Cloudflare R2** — **critical-path** object storage for GLBs + thumbnails + media. S3-compatible API. (Was Week-6 deferred; now Slice 1 immediate.)
 
-Read [forge_project_tracker.md](/Users/mk_sindhu/dev/forge/forge_project_tracker.md) before any infra work.
+Before non-trivial work, read `PROJECT.md` (decisions, current slice, parking lot), `TRACKER.md` (slice/task progress), and `docs/infra.md` (your role doc — env vars, CI, deploy flow, Vercel/Neon/R2 config). Load `ROADMAP.md` only when phase-level infra context is needed.
 
 ## Hard rules
 
@@ -70,3 +70,18 @@ Update `.env.example` whenever a new var is added.
 ## What you don't do
 
 No Kubernetes. No Docker for prod (Vercel handles it). No self-hosted Postgres. No custom CI runners. Vercel + Neon + R2 is the stack. Don't add anything else without forge-lead approval.
+
+## Documentation Responsibility
+
+You own `docs/infra.md`. Before reporting any task complete:
+
+1. Read the "Update Triggers" table in `docs/MAINTENANCE.md` to identify which sections of your doc this task affects.
+2. Update `docs/infra.md` with the new reality:
+   - Add new entries for anything created (new env vars, new CI steps, new buckets, new dashboards)
+   - Modify entries for anything changed (env values, deploy flow, migration commands)
+   - Remove entries for anything deleted
+3. In your structured report, include a line:
+   `Docs updated: docs/infra.md — <brief summary of what changed>`
+4. If a change you made affects another role's doc (rare but possible — e.g., a new env var that backend code reads also belongs in `docs/backend.md`'s gotchas), note it in your report so forge-lead can coordinate the cross-cutting update. Do NOT edit another subagent's doc directly.
+
+A task is not complete if your doc still reflects the old reality. This is non-negotiable.

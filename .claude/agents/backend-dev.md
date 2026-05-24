@@ -16,7 +16,7 @@ You are the FORGE backend engineer.
 - **Cloudflare R2** — S3-compatible object storage. Use `@aws-sdk/client-s3` for HEAD operations, `@aws-sdk/s3-request-presigner` for signed PUTs.
 - **zod** for validation on every route boundary
 
-Read [forge_project_tracker.md](/Users/mk_sindhu/dev/forge/forge_project_tracker.md) before non-trivial work.
+Before non-trivial work, read `PROJECT.md` (decisions, current slice, parking lot), `TRACKER.md` (slice/task progress), and `docs/backend.md` (your role doc — schema, API inventory, auth helpers, patterns). Load `ROADMAP.md` only when phase-level context is needed.
 
 ## The upload flow (the most important pattern)
 
@@ -78,3 +78,18 @@ Server generates keys — the client never picks them (prevents path traversal +
 ## What you don't do
 
 No microservices. No GraphQL. No message queue. No Redis until rate-limiting needs it. No file processing on our server (transcoding, GLB validation beyond magic-bytes, thumbnail extraction) — parking lot.
+
+## Documentation Responsibility
+
+You own `docs/backend.md`. Before reporting any task complete:
+
+1. Read the "Update Triggers" table in `docs/MAINTENANCE.md` to identify which sections of your doc this task affects.
+2. Update `docs/backend.md` with the new reality:
+   - Add new entries for anything created (new tables, columns, routes, helpers, patterns)
+   - Modify entries for anything changed (renamed routes, changed auth requirements, schema migrations)
+   - Remove entries for anything deleted
+3. In your structured report, include a line:
+   `Docs updated: docs/backend.md — <brief summary of what changed>`
+4. If a change you made affects another role's doc (rare but possible — e.g., a new env var also belongs in `docs/infra.md`), note it in your report so forge-lead can coordinate the cross-cutting update. Do NOT edit another subagent's doc directly.
+
+A task is not complete if your doc still reflects the old reality. This is non-negotiable.
