@@ -8,6 +8,7 @@ import { db } from "@/db";
 import { worlds, users, follows, reposts, worldUpdates, worldMedia, worldTags, tags as tagsTable } from "@/db/schema";
 import { WorldCardMedia } from "@/components/world-card-media/WorldCardMedia";
 import { TagChip } from "@/components/tag-chip/TagChip";
+import { WelcomeCallout } from "@/components/welcome-callout/WelcomeCallout";
 
 // ---------------------------------------------------------------------------
 // Types inferred from the Drizzle query result
@@ -75,6 +76,25 @@ export default async function FeedPage({
       .where(eq(users.clerkId, clerkUserId))
       .limit(1);
     if (row) currentDbUserId = row.id;
+  }
+
+  // --- "Fresh user" check — shown only when signed in -----------------------
+  // Cheap one-row probes: has the user uploaded anything? followed anyone?
+  // isFreshUser is true only when BOTH are false (no uploads AND no follows).
+  // The WelcomeCallout silently disappears once either condition changes.
+  let isFreshUser = false;
+  if (currentDbUserId) {
+    const [uploadedRow] = await db
+      .select({ id: worlds.id })
+      .from(worlds)
+      .where(eq(worlds.userId, currentDbUserId))
+      .limit(1);
+    const [followsRow] = await db
+      .select({ followeeId: follows.followeeId })
+      .from(follows)
+      .where(eq(follows.followerId, currentDbUserId))
+      .limit(1);
+    isFreshUser = !uploadedRow && !followsRow;
   }
 
   // Following tab requires sign-in. Redirect if not authenticated.
@@ -410,6 +430,9 @@ export default async function FeedPage({
         {activeTab === "following" ? "Following" : activeTab === "trending" ? "Trending worlds" : "Recent worlds"}
       </h1>
 
+      {/* Onboarding callout — visible only for fresh signed-in users (no uploads AND no follows) */}
+      {isFreshUser && <WelcomeCallout />}
+
       {/* Tab bar — order: Recent → Trending → Following */}
       <div
         className="mb-6 flex gap-1 border-b border-neutral-200 dark:border-neutral-800"
@@ -428,7 +451,7 @@ export default async function FeedPage({
 
       {/* Grid or empty state */}
       {rows.length === 0 ? (
-        <ContextualEmptyState activeTab={activeTab} />
+        <ContextualEmptyState activeTab={activeTab} signedIn={!!currentDbUserId} />
       ) : (
         <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {rows.map((world) => (
@@ -574,8 +597,10 @@ function FeedCard({ world }: { world: FeedEntry }) {
 // ---------------------------------------------------------------------------
 function ContextualEmptyState({
   activeTab,
+  signedIn,
 }: {
   activeTab: "recent" | "following" | "trending";
+  signedIn: boolean;
 }) {
   if (activeTab === "trending") {
     return (
@@ -589,17 +614,32 @@ function ContextualEmptyState({
 
   if (activeTab === "following") {
     return (
-      <div className="rounded-lg border border-dashed border-neutral-300 py-24 text-center dark:border-neutral-700">
+      <div className="rounded-lg border border-dashed border-neutral-300 px-4 py-24 text-center dark:border-neutral-700">
         <p className="text-lg font-medium text-neutral-700 dark:text-neutral-300">
           Your following feed is empty
         </p>
         <p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400">
-          Worlds from creators you follow will show up here.
+          Find creators to follow — try the Trending tab or search for tags you love.
         </p>
+        <div className="mt-6 flex flex-wrap justify-center gap-3">
+          <Link
+            href="/?tab=trending"
+            className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 dark:focus-visible:ring-neutral-100"
+          >
+            Browse Trending
+          </Link>
+          <Link
+            href="/search"
+            className="rounded-md border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 hover:border-neutral-400 hover:bg-neutral-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2 dark:border-neutral-700 dark:text-neutral-300 dark:hover:border-neutral-500 dark:hover:bg-neutral-900 dark:focus-visible:ring-neutral-100"
+          >
+            Search worlds
+          </Link>
+        </div>
       </div>
     );
   }
 
+  // Recent tab — rare in prod once seed worlds land
   return (
     <div className="rounded-lg border border-dashed border-neutral-300 py-24 text-center dark:border-neutral-700">
       <p className="text-lg font-medium text-neutral-700 dark:text-neutral-300">
@@ -608,12 +648,14 @@ function ContextualEmptyState({
       <p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400">
         Upload a .glb world you&apos;ve made.
       </p>
-      <Link
-        href="/upload"
-        className="mt-6 inline-block rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 dark:focus-visible:ring-neutral-100"
-      >
-        Upload a world
-      </Link>
+      {signedIn && (
+        <Link
+          href="/upload"
+          className="mt-6 inline-block rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 dark:focus-visible:ring-neutral-100"
+        >
+          Upload your first world
+        </Link>
+      )}
     </div>
   );
 }

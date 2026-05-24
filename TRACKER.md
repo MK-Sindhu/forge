@@ -146,7 +146,7 @@ Schema additions + locked design decisions for Slice 7 are recorded in `PROJECT.
 | Real Terms of Service page (currently 404 stub) | ⬜ |
 | Real DMCA email (currently `dmca@forge.example` placeholder) | ⬜ |
 | Unsuspend button in admin UI | ✅ Shipped — Suspended tab + `UnsuspendButton` on `/admin/reports?view=suspended` |
-| Onboarding pass — empty-feed state for new users | ⬜ |
+| Onboarding pass — empty-feed state for new users | ✅ Shipped — `WelcomeCallout` + actionable empty states |
 | 30–50 seed worlds — build / source CC-licensed `.glb` | ⬜ |
 | Basic analytics — Plausible or PostHog | ⬜ |
 | Launch plan: r/threejs + r/blenderhelp first, X/Bluesky parallel, HN last after 200+ users | ⬜ |

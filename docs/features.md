@@ -30,6 +30,7 @@
 | 20 | View counts | 7 | ✅ Verified |
 | 21 | Trending feed tab | 7 | ✅ Verified |
 | 22 | Notifications | 7 | ✅ Verified |
+| 23 | Onboarding callout for fresh users | launch-ops | ✅ Shipped |
 
 ---
 
@@ -262,6 +263,18 @@ Tab routing: `?status=open|resolved|dismissed` for report-status views; `?view=s
 | Migration | `0009_slice7_notifications.sql` |
 
 ⚠️ No-polling design means the bell badge updates on the next page navigation, not in real-time. Acceptable for v1; revisit if engagement patterns reveal heavy notification activity.
+
+## 23. Onboarding Callout for Fresh Users
+
+**Launch-ops** · First-visit welcome banner + actionable empty states. No routes added, no new DB tables, no dismissal state.
+
+| Layer | Where |
+|---|---|
+| Frontend | `<WelcomeCallout>` server component (`src/components/welcome-callout/WelcomeCallout.tsx`) — headline ("Welcome to FORGE 👋"), subhead, 3 action cards: Upload your first world (`/upload`, primary style), Browse what's trending (`/?tab=trending`, secondary), Search for tags or worlds (`/search`, secondary). Mounted in `src/app/page.tsx` above the tab bar when `isFreshUser === true`. `ContextualEmptyState` updated: Following tab now has "Browse Trending" + "Search worlds" buttons; Recent tab has "Upload your first world" button (signed-in only). |
+| Backend | No new API routes. Two cheap 1-row DB probes in `src/app/page.tsx` after the `currentDbUserId` lookup: one against `worlds` (has uploaded?), one against `follows` (follows anyone?). |
+| DB | No schema changes. Reads from existing `worlds` and `follows` tables. |
+
+**Stateless design:** `isFreshUser = !uploadedRow && !followsRow`. The callout disappears automatically the moment the user uploads their first world OR follows their first creator — no explicit dismiss, no cookie, no localStorage. This is intentional: the natural user action already solves the condition the callout targets.
 
 ## Parking Lot Features (Future Phases)
 

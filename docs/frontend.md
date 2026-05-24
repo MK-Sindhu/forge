@@ -62,8 +62,10 @@ src/
     │   └── ViewTracker.tsx        # client component; fires POST /api/worlds/[id]/views once on mount for signed-in users; returns null (no UI)
     ├── notification-bell/
     │   └── NotificationBell.tsx   # server component; bell icon + unread badge; link to /notifications; props: initialUnreadCount
-    └── unsuspend-button/
-        └── UnsuspendButton.tsx    # client component; confirms via window.confirm, DELETE /api/admin/users/[id]/suspend, router.refresh() on success; props: userId, username
+    ├── unsuspend-button/
+    │   └── UnsuspendButton.tsx    # client component; confirms via window.confirm, DELETE /api/admin/users/[id]/suspend, router.refresh() on success; props: userId, username
+    └── welcome-callout/
+        └── WelcomeCallout.tsx     # server component; onboarding callout for fresh signed-in users (no uploads + no follows); headline + 3 action cards (Upload / Trending / Search); no props — always renders the same content; mounts in page.tsx only when isFreshUser === true
 # Note: Header and Footer are inlined in src/app/layout.tsx, not separate component directories.
 ```
 
@@ -71,7 +73,7 @@ src/
 
 | Route | File | Server/Client | Purpose | Slice |
 |---|---|---|---|---|
-| `/` | `src/app/page.tsx` | Server | Feed (3 tabs via `?tab=`: Recent, Trending, Following). Cards show up to 3 tag chips + `+N more` overflow. Trending and Recent are public (no auth gate); Following redirects to sign-in if unauthenticated. | 1, 3, 4, 5, 7.1, 7.4 |
+| `/` | `src/app/page.tsx` | Server | Feed (3 tabs via `?tab=`: Recent, Trending, Following). Cards show up to 3 tag chips + `+N more` overflow. Trending and Recent are public (no auth gate); Following redirects to sign-in if unauthenticated. **Onboarding:** `<WelcomeCallout />` renders above the tab bar for "fresh" signed-in users (no uploads + no follows). The `isFreshUser` flag is computed via two cheap 1-row DB probes (worlds + follows) immediately after the `currentDbUserId` lookup. Callout disappears automatically once user uploads or follows. `ContextualEmptyState` is now actionable: Following tab has "Browse Trending" + "Search worlds" buttons; Recent tab has "Upload your first world" button (signed-in only). | 1, 3, 4, 5, 7.1, 7.4, launch-ops |
 | `/search` | `src/app/search/page.tsx` | Server (public) | Full-text search results. Reads `?q=` and/or `?tag=`. Three branches: empty state (neither), FTS query (`q` only), tag filter (`tag` only), intersection (both). Direct DB query — no API route. Cap 50 results. `search_vector` is Postgres-managed (trigger-populated, not in Drizzle schema). | 7.2 |
 | `/world/[id]` | `src/app/world/[id]/page.tsx` | Server | World viewer page (3D + metadata + carousel + updates + comments + actions). Tag chips row below title. | 1, 2, 3, 4, 5, 7.1 |
 | `/profile/[username]` | `src/app/profile/[username]/page.tsx` | Server | Profile (avatar, follower/following counts, world grid). Cards show up to 3 tag chips + `+N more` overflow. | 1, 3, 7.1 |
@@ -171,6 +173,15 @@ Feed page `?tab=trending` branch in `src/app/page.tsx`:
 - **Tie-breaker:** `createdAt DESC` secondary sort so newer worlds win when decay scores tie.
 - **Empty state:** "No trending worlds yet — like some to seed the algorithm."
 - **Locked decision:** algorithm, half-life, and 30-day cap are locked in `PROJECT.md` decision log.
+
+### Stateless onboarding via DB-derived flag
+
+The `WelcomeCallout` uses no cookie, no localStorage, no dismissal state. Instead, the server component (`src/app/page.tsx`) derives `isFreshUser` by running two cheap DB probes after the `currentDbUserId` lookup:
+
+1. `SELECT id FROM worlds WHERE user_id = $1 LIMIT 1` — has the user uploaded?
+2. `SELECT followee_id FROM follows WHERE follower_id = $1 LIMIT 1` — does the user follow anyone?
+
+`isFreshUser = !uploadedRow && !followsRow`. The callout mounts only when both are false and disappears permanently the moment either condition changes — no explicit dismiss action needed. This pattern is appropriate for low-cost one-time checks where the natural user action (uploading or following) already solves the condition the callout targets.
 
 ### Error boundaries
 
