@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+/* Reserve scrollbar gutter so centered content doesn't shift between
+   tabs/pages depending on whether the page scrolls. */
+html {
+  scrollbar-gutter: stable;
+}
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
