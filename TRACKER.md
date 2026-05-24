@@ -2,7 +2,7 @@
 
 > The "what is done, what is left, what is in-flight" doc. Updated after every slice ships and after every prod smoke test.
 
-**Last updated:** 2026-05-23
+**Last updated:** 2026-05-24
 
 ---
 
@@ -12,10 +12,10 @@
 |---|---|
 | Current phase | Phase 1 — Launch |
 | Current slice | Slice 7 — Discovery polish (planned, not started) |
-| In-flight | Slice 6 smoke test (mid-flight in production) |
+| In-flight | — (Slice 7 planning next) |
 | Tests | 311 across 16 test files |
-| Commits on main | 15 |
-| Latest commit | `127f5d7` — feat(slice-6): moderation |
+| Commits on main | 16 |
+| Latest commit | `de71b5a` — docs: restructure into role-specific reference docs + maintenance protocol |
 | Branch state | `main` clean, in sync with `origin/main` |
 | Production | https://forge-black-eta.vercel.app |
 | DB | Neon Postgres — 9 tables, 5 migrations applied |
@@ -98,16 +98,16 @@ Legend: ✅ shipped + verified in prod · 🟢 shipped + deployed, not prod-smok
 | API | `POST/GET /api/worlds/[id]/updates`, `PATCH/DELETE /api/updates/[id]` |
 | Smoke test | ⬜ Pending |
 
-#### Slice 6 — Moderation 🟡
+#### Slice 6 — Moderation ✅
 
 | | |
 |---|---|
-| Status | Shipped + deployed, **smoke test in-flight** |
+| Status | Shipped + verified in prod (2026-05-24) |
 | What | Reports queue. Admin tools. Suspensions. `users.is_admin`, `users.suspended_at`. Suspension guards on 12 write endpoints. Suspension-exempt safety valve for report endpoint. DMCA stub page. |
 | Schema | `reports` (unique on (reporter_id, world_id), CHECK enums on reason + status, resolved_by_id ON DELETE SET NULL) |
 | API | `POST /api/worlds/[id]/reports`, `GET/PATCH /api/admin/reports`, `POST/DELETE /api/admin/users/[id]/suspend` |
 | New helpers | `requireAdmin`, `requireActiveDbUser` in `src/lib/users.ts` |
-| Smoke test checklist | (1) Admin link appears in nav · (2) `/admin/reports` accessible · (3) Report flow works · (4) Resolve moves row state · (5) Suspended user can still report but can't like/upload |
+| Smoke test | ✅ All 5 checks passed — admin link visible, `/admin/reports` loads, report flow works end-to-end, resolve moves row state, safety valve confirmed (suspended user blocked from likes/comments/uploads but can still file reports) |
 
 ### Phase 1 — Launch
 
@@ -165,7 +165,7 @@ Things that work but should be cleaned up before or shortly after launch.
 | 1 | No "Unsuspend" button in admin UI — currently SQL-only | Low | `/admin/reports` (admin tools) |
 | 2 | `/legal/dmca` placeholder email (`dmca@forge.example`) | **Blocker for public launch** | `src/app/legal/dmca/page.tsx` |
 | 3 | `/legal/terms` is a 404 stub | **Blocker for public launch** | `src/app/legal/terms/page.tsx` |
-| 4 | Slices 2, 4, 5, 6 deployed but not yet prod-smoke-tested | Medium | Production |
+| 4 | Slices 2, 4, 5 deployed but not yet prod-smoke-tested (Slice 6 verified 2026-05-24) | Medium | Production |
 | 5 | `dbPool` (WebSocket Drizzle client) doesn't have schema wired — `db.query.*` only works on `db` (HTTP). If a route needs transactions AND relational queries, fix this. | Low | `src/db/*.ts` |
 
 ## 5. Test Coverage by Slice

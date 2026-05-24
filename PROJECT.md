@@ -2,7 +2,7 @@
 
 > The "what are we doing this week" doc. For the long arc, see `ROADMAP.md`.
 
-**Last updated:** 2026-05-23
+**Last updated:** 2026-05-24
 **Current phase:** Phase 1 — Launch
 **Current slice:** Slice 7 — Discovery polish (next up)
 **Builder:** Solo (student)
@@ -30,8 +30,8 @@ A social platform for publishing 3D worlds. Creators upload `.glb` files, viewer
 | DB | Neon Postgres — 9 tables, 5 migrations applied |
 | Storage | Cloudflare R2 — 2 buckets (forge-glb, forge-media), public read |
 | Branch state | `main` clean, in sync with `origin/main` |
-| Slices verified in prod | 1, 3 ✅ — 2, 4, 5, 6 deployed but not yet smoke-tested |
-| In-flight | Slice 6 smoke test (admin link + report flow + safety-valve check) |
+| Slices verified in prod | 1, 3, 6 ✅ — 2, 4, 5 deployed but not yet smoke-tested |
+| In-flight | — (Slice 7 planning next) |
 
 ## 3. Stack (Locked)
 
@@ -99,17 +99,17 @@ These ship before public launch, not after Slice 7:
 - Basic analytics — Plausible or PostHog
 - Launch order: r/threejs + r/blenderhelp first, X/Bluesky in parallel, HN Show HN last after 200+ users and zero showstoppers
 
-## 6. Slice 6 Smoke Test (Mid-Flight)
+## 6. Slice 6 Smoke Test (Verified 2026-05-24)
 
-What's left to verify in production:
+All 5 production checks passed:
 
-1. Hard-refresh production → "Admin" link should appear in nav (you granted yourself admin via SQL)
-2. Click Admin → see `/admin/reports`
-3. Report a world → appears in queue
-4. Click Resolve → row moves from Open to Resolved
-5. Safety-valve check: suspend a test account, sign in as them, confirm they can't like/upload (403) BUT can still report (200)
+1. ✅ Admin link appeared in nav after hard refresh
+2. ✅ `/admin/reports` accessible to admin user
+3. ✅ Report-a-world flow works — submitted reports land in the Open tab
+4. ✅ Resolve action moves the row from Open → Resolved
+5. ✅ Safety-valve confirmed — suspended user blocked from likes/comments/uploads (403) but can still file reports (200)
 
-If step 1 fails: hard refresh (Cmd+Shift+R), sign out + back in, or incognito.
+Slice 6 is now considered fully shipped + verified. No further action required.
 
 ## 7. Decision Log
 
@@ -236,8 +236,7 @@ Production dashboards:
 1. Memory files auto-load. Agents see persistent state.
 2. Read this doc (`PROJECT.md`) first.
 3. Read `ROADMAP.md` for strategic context.
-4. Confirm Slice 6 smoke test status (passed or describe what failed).
-5. Say "do slice 7" — agents plan it (likely plan-mode again, like Slice 6) and execute task by task.
+4. Say "plan slice 7" — agents enter plan mode against the locked design (Tags → Search → Views → Trending → Notifications) and execute task by task once approved.
 
 ---
 

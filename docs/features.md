@@ -21,9 +21,9 @@
 | 11 | Reposts | 4 | 🟢 Deployed, not prod-smoked |
 | 12 | Share button | 4 | 🟢 Deployed, not prod-smoked |
 | 13 | World updates timeline | 5 | 🟢 Deployed, not prod-smoked |
-| 14 | Reports / flagging | 6 | 🟡 Smoke test in-flight |
-| 15 | Admin moderation tools | 6 | 🟡 Smoke test in-flight |
-| 16 | Suspensions + safety-valve report endpoint | 6 | 🟡 Smoke test in-flight |
+| 14 | Reports / flagging | 6 | ✅ Verified |
+| 15 | Admin moderation tools | 6 | ✅ Verified |
+| 16 | Suspensions + safety-valve report endpoint | 6 | ✅ Verified |
 | 17 | DMCA + Footer | 6 | 🟢 Stub — needs real content before public launch |
 
 ---
