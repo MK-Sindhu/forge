@@ -30,8 +30,8 @@ A social platform for publishing 3D worlds. Creators upload `.glb` files, viewer
 | DB | Neon Postgres — 12 tables, 9 migrations applied (Slice 7 added tags, world_tags, world_views, notifications + worlds.search_vector tsvector column) |
 | Storage | Cloudflare R2 — 2 buckets (forge-glb, forge-media), public read |
 | Branch state | `main` clean, in sync with `origin/main` |
-| Slices verified in prod | 1, 3, 6 ✅ — 2, 4, 5, 7 deployed but not yet smoke-tested |
-| In-flight | Slice 7 prod migrations (0006–0009) + smoke test of the 5 sub-slices |
+| Slices verified in prod | 1, 3, 6, 7 ✅ — 2, 4, 5 deployed but not yet smoke-tested |
+| In-flight | Launch ops (real Terms page, real DMCA email, unsuspend button, onboarding, seed worlds, analytics) |
 
 ## 3. Stack (Locked)
 

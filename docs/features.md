@@ -25,11 +25,11 @@
 | 15 | Admin moderation tools | 6 | ✅ Verified |
 | 16 | Suspensions + safety-valve report endpoint | 6 | ✅ Verified |
 | 17 | DMCA + Footer | 6 | 🟢 Stub — needs real content before public launch |
-| 18 | Tags on worlds | 7 | 🟢 Deployed, not yet prod-smoked |
-| 19 | Search (Postgres FTS) | 7 | 🟢 Deployed, not yet prod-smoked |
-| 20 | View counts | 7 | 🟢 Deployed, not yet prod-smoked |
-| 21 | Trending feed tab | 7 | 🟢 Deployed, not yet prod-smoked |
-| 22 | Notifications | 7 | 🟢 Deployed, not yet prod-smoked |
+| 18 | Tags on worlds | 7 | ✅ Verified |
+| 19 | Search (Postgres FTS) | 7 | ✅ Verified |
+| 20 | View counts | 7 | ✅ Verified |
+| 21 | Trending feed tab | 7 | ✅ Verified |
+| 22 | Notifications | 7 | ✅ Verified |
 
 ---
 
