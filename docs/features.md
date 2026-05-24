@@ -22,8 +22,8 @@
 | 12 | Share button | 4 | 🟢 Deployed, not prod-smoked |
 | 13 | World updates timeline | 5 | 🟢 Deployed, not prod-smoked |
 | 14 | Reports / flagging | 6 | ✅ Verified |
-| 15 | Admin moderation tools | 6 | ✅ Verified |
-| 16 | Suspensions + safety-valve report endpoint | 6 | ✅ Verified |
+| 15 | Admin moderation tools (+ Suspended tab + Unsuspend button) | 6 + launch-ops | ✅ Verified |
+| 16 | Suspensions + safety-valve report endpoint + Unsuspend UI | 6 + launch-ops | ✅ Verified |
 | 17 | DMCA + Footer | 6 | 🟢 Stub — needs real content before public launch |
 | 18 | Tags on worlds | 7 | ✅ Verified |
 | 19 | Search (Postgres FTS) | 7 | ✅ Verified |
@@ -172,25 +172,26 @@ Reposts surface in the Following feed (Slice 4 work to merge originals + reposts
 
 ## 14. Admin Moderation Tools
 
-**Slice 6** · Admin-only queue + actions.
+**Slice 6 + launch-ops** · Admin-only queue + actions.
 
 | Layer | Where |
 |---|---|
-| Frontend | `/admin/reports` — server-component page (silent redirect for non-admins), status tabs (Open / Resolved / Dismissed), Resolve / Dismiss / Suspend-creator inline actions; conditional "Admin" link in header |
+| Frontend | `/admin/reports` — server-component page (silent redirect for non-admins); four tabs: Open / Resolved / Dismissed / Suspended; Resolve / Dismiss / Suspend-creator inline actions on report rows; Suspended tab lists suspended users with `UnsuspendButton` per row; conditional "Admin" link in header |
 | Backend | `GET /api/admin/reports` (paginated, status filter); `PATCH /api/admin/reports/[id]` (resolve/dismiss); `POST/DELETE /api/admin/users/[id]/suspend` |
 | DB | `reports`, `users.is_admin`, `users.suspended_at` |
 | Helpers | `requireAdmin()` in `src/lib/users.ts` |
 
+Tab routing: `?status=open|resolved|dismissed` for report-status views; `?view=suspended` for the suspended-users view (separate param because the shape is different — user rows, not report rows).
+
 ## 15. Suspensions
 
-**Slice 6** · Suspended users can't perform write actions (12 endpoints guarded). EXCEPT reports — that's the safety valve.
+**Slice 6 + launch-ops** · Suspended users can't perform write actions (12 endpoints guarded). EXCEPT reports — that's the safety valve.
 
 | Layer | Where |
 |---|---|
+| Frontend | `UnsuspendButton` client component (`src/components/unsuspend-button/UnsuspendButton.tsx`) — `window.confirm` dialog, `DELETE /api/admin/users/[id]/suspend`, `router.refresh()` on success, alert + re-enable on error, "Unsuspending…" loading state. Rendered in the Suspended tab of `/admin/reports`. Admin rows skip the button (defensive — admins shouldn't be suspended, but guarded). |
 | Backend | `requireActiveDbUser()` on 12 write endpoints; `requireAdmin()` for the suspend/unsuspend actions; suspend self-action blocked |
 | DB | `users.suspended_at` (nullable timestamp — null means active) |
-
-⚠️ No "Unsuspend" button in admin UI yet — currently SQL-only or direct API call. Add the button before public launch.
 
 ## 16. DMCA / Footer
 

@@ -60,8 +60,10 @@ src/
     │   └── TagChip.tsx            # server component; rounded-pill link to /search?tag=; props: name, size ("default"|"small")
     ├── view-tracker/
     │   └── ViewTracker.tsx        # client component; fires POST /api/worlds/[id]/views once on mount for signed-in users; returns null (no UI)
-    └── notification-bell/
-        └── NotificationBell.tsx   # server component; bell icon + unread badge; link to /notifications; props: initialUnreadCount
+    ├── notification-bell/
+    │   └── NotificationBell.tsx   # server component; bell icon + unread badge; link to /notifications; props: initialUnreadCount
+    └── unsuspend-button/
+        └── UnsuspendButton.tsx    # client component; confirms via window.confirm, DELETE /api/admin/users/[id]/suspend, router.refresh() on success; props: userId, username
 # Note: Header and Footer are inlined in src/app/layout.tsx, not separate component directories.
 ```
 
@@ -76,7 +78,7 @@ src/
 | `/upload` | `src/app/upload/page.tsx` + `UploadForm.tsx` | Client (`UploadForm`) | Multi-step upload form | 1, 2 |
 | `/sign-in/[[...sign-in]]` | `src/app/sign-in/[[...sign-in]]/page.tsx` | Server (Clerk drop-in) | Clerk sign-in | 0 |
 | `/sign-up/[[...sign-up]]` | `src/app/sign-up/[[...sign-up]]/page.tsx` | Server (Clerk drop-in) | Clerk sign-up | 0 |
-| `/admin/reports` | `src/app/admin/reports/page.tsx` | Server (admin gate) | Moderation queue | 6 |
+| `/admin/reports` | `src/app/admin/reports/page.tsx` | Server (admin gate) | Moderation queue. Four tabs: Open (`?status=open` or default) / Resolved (`?status=resolved`) / Dismissed (`?status=dismissed`) / Suspended (`?view=suspended`). The Suspended view queries `users WHERE suspended_at IS NOT NULL ORDER BY suspended_at DESC` and renders avatar + username + "Suspended {relative time}" + `UnsuspendButton` per row. Status tabs use `?status=...`; the Suspended tab uses a separate `?view=suspended` param to distinguish the shape difference. | 6, launch-ops |
 | `/legal/dmca` | `src/app/legal/dmca/page.tsx` | Static | DMCA placeholder | 6 |
 | `/legal/terms` | — (404 stub, file missing) | — | Terms placeholder (build before public launch) | 6 |
 | `/notifications` | `src/app/notifications/page.tsx` | Server (auth-gated) | Notification feed. First page fetched via direct DB query. Cursor pagination via `NotificationList` client component. `MarkAllReadOnView` fires mark-read POST after 1.5s. Redirects to `/sign-in?redirect_url=/notifications` when signed out. | 7.5 |

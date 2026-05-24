@@ -2,7 +2,7 @@
 
 > The "what is done, what is left, what is in-flight" doc. Updated after every slice ships and after every prod smoke test.
 
-**Last updated:** 2026-05-24
+**Last updated:** 2026-05-25
 
 ---
 
@@ -26,7 +26,7 @@
 | Phase | Status | Notes |
 |---|---|---|
 | Phase 0 — Foundation | ✅ COMPLETE | Slices 0–6 shipped |
-| Phase 1 — Launch | 🟡 IN PROGRESS | Slice 7 pending + launch ops |
+| Phase 1 — Launch | 🟡 IN PROGRESS | Slice 7 ✅ verified 2026-05-25; launch ops next (Terms, DMCA, onboarding, seed worlds, analytics, public launch) |
 | Phase 2 — Architectural Pivot | ⬜ NOT STARTED | Scene graph API + multi-surface editing |
 | Phase 3 — Collaboration | ⬜ NOT STARTED | Async → Presence → Realtime edit |
 | Phase 4 — Living Worlds | ⬜ NOT STARTED | Interactivity + portals + scripting |
@@ -137,27 +137,15 @@ Legend: ✅ shipped + verified in prod · 🟢 shipped + deployed, not prod-smok
 | 7.4 | Trending — new feed tab, `likes × decay(age_in_hours)` | ✅ |
 | 7.5 | Notifications — bell icon + `/notifications`. Events: like, comment, follow, new-world-from-followee | ✅ |
 
-**Schema additions for Slice 7:**
+Schema additions + locked design decisions for Slice 7 are recorded in `PROJECT.md` §7 decision log and in the per-sub-slice table above. Schema details: see `docs/backend.md`.
 
-- `tags` (id, name unique)
-- `world_tags` (world_id + tag_id, composite PK)
-- `notifications` (id, user_id, type enum, actor_id, world_id nullable, comment_id nullable, created_at, read_at nullable)
-- `worlds.view_count` denormalized counter OR `world_views` table — TBD in planning
-
-**Locked design decisions** (no need to re-ask):
-
-- Tags format: free-form hashtag style, not curated
-- Notification scope: like, comment, follow, new-world-from-followee only
-- Trending algorithm: simple `likes × decay`
-- Email / push: parked
-
-### Launch Ops (parallel with / after Slice 7, before public launch)
+### Launch Ops (in flight — gates public launch)
 
 | Task | Status |
 |---|---|
 | Real Terms of Service page (currently 404 stub) | ⬜ |
 | Real DMCA email (currently `dmca@forge.example` placeholder) | ⬜ |
-| Unsuspend button in admin UI (currently SQL-only) | ⬜ |
+| Unsuspend button in admin UI | ✅ Shipped — Suspended tab + `UnsuspendButton` on `/admin/reports?view=suspended` |
 | Onboarding pass — empty-feed state for new users | ⬜ |
 | 30–50 seed worlds — build / source CC-licensed `.glb` | ⬜ |
 | Basic analytics — Plausible or PostHog | ⬜ |
@@ -170,7 +158,7 @@ Things that work but should be cleaned up before or shortly after launch.
 
 | # | Issue | Severity | Where |
 |---|---|---|---|
-| 1 | No "Unsuspend" button in admin UI — currently SQL-only | Low | `/admin/reports` (admin tools) |
+| 1 | ~~No "Unsuspend" button in admin UI — currently SQL-only~~ **Resolved** — Suspended tab + `UnsuspendButton` shipped (launch-ops task, this session) | — | `/admin/reports?view=suspended` |
 | 2 | `/legal/dmca` placeholder email (`dmca@forge.example`) | **Blocker for public launch** | `src/app/legal/dmca/page.tsx` |
 | 3 | `/legal/terms` is a 404 stub | **Blocker for public launch** | `src/app/legal/terms/page.tsx` |
 | 4 | Slices 2, 4, 5 deployed but not yet prod-smoke-tested (Slices 6 + 7 verified) | Medium | Production |
