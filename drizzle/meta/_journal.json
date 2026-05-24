@@ -29,6 +29,13 @@
       "when": 1779544000000,
       "tag": "0003_slice4_engagement",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1779548000000,
+      "tag": "0004_slice5_world_updates",
+      "breakpoints": true
     }
   ]
 }

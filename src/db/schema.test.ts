@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { users, worlds, likes, worldMedia, follows, comments, reposts } from "./schema";
+import { users, worlds, likes, worldMedia, follows, comments, reposts, worldUpdates } from "./schema";
 
 describe("db schema exports", () => {
-  it("exports the seven MVP tables", () => {
+  it("exports the eight MVP tables", () => {
     expect(users).toBeDefined();
     expect(worlds).toBeDefined();
     expect(likes).toBeDefined();
@@ -10,5 +10,6 @@ describe("db schema exports", () => {
     expect(follows).toBeDefined();
     expect(comments).toBeDefined();
     expect(reposts).toBeDefined();
+    expect(worldUpdates).toBeDefined();
   });
 });

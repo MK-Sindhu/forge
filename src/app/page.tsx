@@ -1,11 +1,11 @@
 import Link from "next/link";
 import Image from "next/image";
 import { redirect } from "next/navigation";
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, or } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { auth } from "@clerk/nextjs/server";
 import { db } from "@/db";
-import { worlds, users, follows, reposts } from "@/db/schema";
+import { worlds, users, follows, reposts, worldUpdates, worldMedia } from "@/db/schema";
 import { WorldCardMedia } from "@/components/world-card-media/WorldCardMedia";
 
 // ---------------------------------------------------------------------------
@@ -24,10 +24,28 @@ type FeedWorld = {
   media: { type: string; url: string }[];
 };
 
-type FeedEntry = FeedWorld & {
-  activityAt: Date;
-  repostedBy: string | null;
-};
+type FeedEntry =
+  | (FeedWorld & {
+      entryType: "original";
+      activityAt: Date;
+      repostedBy: null;
+      updateBody: null;
+      updateId: null;
+    })
+  | (FeedWorld & {
+      entryType: "repost";
+      activityAt: Date;
+      repostedBy: string;
+      updateBody: null;
+      updateId: null;
+    })
+  | (FeedWorld & {
+      entryType: "update";
+      activityAt: Date;
+      repostedBy: null;
+      updateBody: string;
+      updateId: string;
+    });
 
 // ---------------------------------------------------------------------------
 // Page (server component — no 'use client')
@@ -134,7 +152,7 @@ export default async function FeedPage({
         },
       });
 
-      // Step 4: fetch full world data for worlds that were reposted but whose
+      // Step 3b: fetch full world data for worlds that were reposted but whose
       // author is NOT in followeeIds (i.e. not already in originalRows)
       const originalIds = new Set(originalRows.map((w) => w.id));
       const repostOnlyIds = [...repostByWorld.keys()].filter(
@@ -164,7 +182,57 @@ export default async function FeedPage({
               },
             });
 
-      // Step 5: merge + sort by activityAt DESC, cap at 50
+      // Step 4: world updates by followees
+      const updateRows = await db
+        .select({
+          updateId: worldUpdates.id,
+          updateBody: worldUpdates.body,
+          updateCreatedAt: worldUpdates.createdAt,
+          worldId: worldUpdates.worldId,
+          worldTitle: worlds.title,
+          worldGlbUrl: worlds.glbUrl,
+          worldLikesCount: worlds.likesCount,
+          worldViews: worlds.views,
+          worldCreatedAt: worlds.createdAt,
+          authorUsername: users.username,
+          authorAvatarUrl: users.avatarUrl,
+        })
+        .from(worldUpdates)
+        .innerJoin(worlds, eq(worlds.id, worldUpdates.worldId))
+        .innerJoin(users, eq(users.id, worlds.userId))
+        .where(inArray(worlds.userId, followeeIds))
+        .orderBy(desc(worldUpdates.createdAt))
+        .limit(50);
+
+      // Step 5: fetch thumbnail/video media for the worlds referenced in updates
+      const updateWorldIds = [...new Set(updateRows.map((u) => u.worldId))];
+      const updateMediaRows =
+        updateWorldIds.length === 0
+          ? []
+          : await db
+              .select({
+                worldId: worldMedia.worldId,
+                type: worldMedia.type,
+                url: worldMedia.url,
+              })
+              .from(worldMedia)
+              .where(
+                and(
+                  inArray(worldMedia.worldId, updateWorldIds),
+                  or(
+                    eq(worldMedia.type, "thumbnail"),
+                    eq(worldMedia.type, "video")
+                  )
+                )
+              );
+
+      const mediaByWorld = new Map<string, { type: string; url: string }[]>();
+      for (const m of updateMediaRows) {
+        if (!mediaByWorld.has(m.worldId)) mediaByWorld.set(m.worldId, []);
+        mediaByWorld.get(m.worldId)!.push({ type: m.type, url: m.url });
+      }
+
+      // Step 6: merge + sort by activityAt DESC, cap at 50
       const merged: FeedEntry[] = [
         ...(originalRows as FeedWorld[]).map((w) => {
           const r = repostByWorld.get(w.id);
@@ -175,21 +243,48 @@ export default async function FeedPage({
           if (r && r.repostedAt > w.createdAt) {
             return {
               ...w,
+              entryType: "repost" as const,
               activityAt: r.repostedAt,
               repostedBy: r.reposterUsername,
+              updateBody: null,
+              updateId: null,
             };
           }
-          return { ...w, activityAt: w.createdAt, repostedBy: null };
+          return {
+            ...w,
+            entryType: "original" as const,
+            activityAt: w.createdAt,
+            repostedBy: null,
+            updateBody: null,
+            updateId: null,
+          };
         }),
         ...(repostOnlyRows as FeedWorld[]).map((w) => {
           // Guaranteed: every id in repostOnlyIds has an entry in repostByWorld
           const r = repostByWorld.get(w.id)!;
           return {
             ...w,
+            entryType: "repost" as const,
             activityAt: r.repostedAt,
             repostedBy: r.reposterUsername,
+            updateBody: null,
+            updateId: null,
           };
         }),
+        ...updateRows.map((u) => ({
+          entryType: "update" as const,
+          id: u.worldId,
+          title: u.worldTitle,
+          likesCount: u.worldLikesCount,
+          views: u.worldViews,
+          createdAt: u.worldCreatedAt,
+          user: { username: u.authorUsername, avatarUrl: u.authorAvatarUrl },
+          media: mediaByWorld.get(u.worldId) ?? [],
+          activityAt: u.updateCreatedAt,
+          repostedBy: null,
+          updateBody: u.updateBody,
+          updateId: u.updateId,
+        })),
       ];
 
       merged.sort((a, b) => b.activityAt.getTime() - a.activityAt.getTime());
@@ -222,8 +317,11 @@ export default async function FeedPage({
     // Recent tab has no repost attribution — activityAt equals createdAt, repostedBy is null
     rows = (result as FeedWorld[]).map((w) => ({
       ...w,
+      entryType: "original" as const,
       activityAt: w.createdAt,
       repostedBy: null,
+      updateBody: null,
+      updateId: null,
     }));
   }
 
@@ -254,7 +352,7 @@ export default async function FeedPage({
       ) : (
         <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {rows.map((world) => (
-            <li key={world.id}>
+            <li key={`${world.entryType}-${world.entryType === "update" ? world.updateId : world.id}`}>
               <FeedCard world={world} />
             </li>
           ))}
@@ -317,6 +415,15 @@ function FeedCard({ world }: { world: FeedEntry }) {
           </span>
         </div>
       )}
+      {/* Update attribution — shown above the card when this entry is a world update */}
+      {world.updateBody && (
+        <div className="mb-1 text-xs text-neutral-500 dark:text-neutral-400">
+          Update from{" "}
+          <span className="font-medium text-neutral-700 dark:text-neutral-300">
+            @{world.user.username}
+          </span>
+        </div>
+      )}
       <Link
         href={`/world/${world.id}`}
         className="group block overflow-hidden rounded-lg border border-neutral-200 transition hover:border-neutral-400 dark:border-neutral-800 dark:hover:border-neutral-600"
@@ -335,6 +442,12 @@ function FeedCard({ world }: { world: FeedEntry }) {
           <h2 className="line-clamp-2 text-sm font-medium text-neutral-900 dark:text-neutral-100">
             {world.title}
           </h2>
+          {/* Update body snippet — visually distinguishes update content from the world title */}
+          {world.updateBody && (
+            <p className="mt-1 line-clamp-2 text-xs text-neutral-600 dark:text-neutral-400">
+              &quot;{world.updateBody}&quot;
+            </p>
+          )}
           <div className="mt-2 flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
             {world.user.avatarUrl && (
               <Image

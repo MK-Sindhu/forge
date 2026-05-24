@@ -11,6 +11,7 @@ import { LikeButton } from "@/components/like-button/LikeButton";
 import { RepostButton } from "@/components/repost-button/RepostButton";
 import { ShareButton } from "@/components/share-button/ShareButton";
 import CommentsSection from "@/components/comments-section/CommentsSection";
+import UpdatesTimeline from "@/components/updates-timeline/UpdatesTimeline";
 
 export default async function WorldPage(
   { params }: { params: Promise<{ id: string }> }
@@ -123,6 +124,12 @@ export default async function WorldPage(
           {world.views} {world.views === 1 ? "view" : "views"}
         </span>
       </div>
+
+      {/* Updates timeline — creator-driven content; shown above community comments */}
+      <UpdatesTimeline
+        worldId={world.id}
+        isOwner={currentUserDbId === world.author.id}
+      />
 
       {/* Comments section */}
       <CommentsSection

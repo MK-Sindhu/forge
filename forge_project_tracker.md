@@ -3,7 +3,7 @@
 > A social platform for 3D world creators. Upload your `.glb` world, share it in a feed, others enter and explore it in the browser.
 
 **Last updated:** 2026-05-24
-**Current phase:** Slices 1–3 shipped (likes, follows, Following feed live). Slice 4 (engagement — comments, share, repost) starting.
+**Current phase:** Slices 1–4 shipped. Slice 5 (world updates timeline — text-only first; media on updates is a parking-lot follow-up) starting.
 **Builder:** Solo (student)
 **Build tool:** Claude Code
 
@@ -74,7 +74,7 @@ No weekly deadlines. Each slice ships when production-grade: tests, error handli
 | 2 | Rich media gallery (multi-image + video carousel)    | ✅ Done |
 | 3 | Social baseline (profiles, likes, follow)            | ✅ Done |
 | 4 | Engagement (comments, share/promote)                 | ✅ Done |
-| 5 | World updates timeline                               | ⬜ |
+| 5 | World updates timeline (text-only v1; media follow-up later) | ✅ Done |
 | 6 | Moderation (reports, TOS, basic admin)               | ⬜ |
 | 7 | Discovery polish (better feed sorting, notifications)| ⬜ |
 

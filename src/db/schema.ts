@@ -138,6 +138,8 @@ export const worldsRelations = relations(worlds, ({ one, many }) => ({
   // Slice 4 — engagement
   comments: many(comments),
   reposts: many(reposts),
+  // Slice 5 — world updates timeline
+  updates: many(worldUpdates),
 }));
 
 export const worldMediaRelations = relations(worldMedia, ({ one }) => ({
@@ -206,6 +208,27 @@ export const reposts = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// world_updates
+// No user_id column — author is implicitly the world owner (worlds.userId).
+// editedAt is nullable: null means never edited.
+// ---------------------------------------------------------------------------
+export const worldUpdates = pgTable(
+  "world_updates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    worldId: uuid("world_id")
+      .notNull()
+      .references(() => worlds.id, { onDelete: "cascade" }),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    editedAt: timestamp("edited_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("world_updates_world_id_created_at_idx").on(t.worldId, desc(t.createdAt)),
+  ]
+);
+
+// ---------------------------------------------------------------------------
 // relations (Slice 4 additions)
 // ---------------------------------------------------------------------------
 export const commentsRelations = relations(comments, ({ one }) => ({
@@ -216,4 +239,11 @@ export const commentsRelations = relations(comments, ({ one }) => ({
 export const repostsRelations = relations(reposts, ({ one }) => ({
   user: one(users, { fields: [reposts.userId], references: [users.id] }),
   world: one(worlds, { fields: [reposts.worldId], references: [worlds.id] }),
+}));
+
+// ---------------------------------------------------------------------------
+// relations (Slice 5 additions)
+// ---------------------------------------------------------------------------
+export const worldUpdatesRelations = relations(worldUpdates, ({ one }) => ({
+  world: one(worlds, { fields: [worldUpdates.worldId], references: [worlds.id] }),
 }));
