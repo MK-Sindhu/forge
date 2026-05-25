@@ -26,6 +26,44 @@ import path from "path";
 import { randomUUID } from "crypto";
 
 // ---------------------------------------------------------------------------
+// fetch with retry — wraps Node fetch with exponential backoff on network
+// errors. Transient DNS / TCP / TLS failures on flaky connections (the
+// reason `fetch failed` was killing whole uploads) get up to 3 attempts.
+// Per-attempt timeout via AbortController prevents indefinite hangs.
+// ---------------------------------------------------------------------------
+
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  opts: { attempts?: number; perAttemptTimeoutMs?: number; baseDelayMs?: number } = {}
+): Promise<Response> {
+  const attempts = opts.attempts ?? 4;
+  const timeoutMs = opts.perAttemptTimeoutMs ?? 60_000;
+  const baseDelayMs = opts.baseDelayMs ?? 1_000;
+
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { ...init, signal: controller.signal });
+      clearTimeout(timer);
+      return res;
+    } catch (err) {
+      clearTimeout(timer);
+      lastErr = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (i < attempts - 1) {
+        const wait = baseDelayMs * Math.pow(2, i);
+        console.log(`    network retry ${i + 1}/${attempts - 1} in ${wait}ms (${msg})`);
+        await new Promise((r) => setTimeout(r, wait));
+      }
+    }
+  }
+  throw lastErr;
+}
+
+// ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
@@ -189,7 +227,7 @@ async function uploadFile(
   }
 
   // 1. Request a presigned PUT URL from the API
-  const signRes = await fetch(`${API_BASE}/api/uploads/sign`, {
+  const signRes = await fetchWithRetry(`${API_BASE}/api/uploads/sign`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -213,16 +251,22 @@ async function uploadFile(
     objectKey: string;
   };
 
-  // 2. Read the file and PUT directly to R2 (bytes never touch our server)
+  // 2. Read the file and PUT directly to R2 (bytes never touch our server).
+  //    R2 uploads can be large + slow on flaky connections — give them a
+  //    generous per-attempt timeout (2 min) and 4 attempts.
   const fileBuffer = await readFile(absPath);
-  const putRes = await fetch(uploadUrl, {
-    method: "PUT",
-    headers: {
-      "Content-Type": contentType,
-      "Content-Length": String(sizeBytes),
+  const putRes = await fetchWithRetry(
+    uploadUrl,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": contentType,
+        "Content-Length": String(sizeBytes),
+      },
+      body: fileBuffer,
     },
-    body: fileBuffer,
-  });
+    { perAttemptTimeoutMs: 120_000 }
+  );
 
   if (!putRes.ok) {
     const text = await putRes.text().catch(() => "(no body)");
@@ -316,7 +360,7 @@ async function uploadWorld(
     tags: entry.tags ?? [],
   };
 
-  const worldRes = await fetch(`${API_BASE}/api/worlds`, {
+  const worldRes = await fetchWithRetry(`${API_BASE}/api/worlds`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
