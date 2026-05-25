@@ -44,6 +44,7 @@
 | Doc | Purpose |
 |---|---|
 | [`R2_SETUP.md`](./R2_SETUP.md) | One-time R2 bucket setup steps. Referenced from `infra.md`. |
+| [`launch-posts.md`](./launch-posts.md) | Draft copy for r/threejs · r/WebGL · r/blender · X/Bluesky · Show HN. Before-posting checklist + post-launch dashboard. Loaded when planning the public launch. |
 
 ## Maintenance Rules
 

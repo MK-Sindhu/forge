@@ -150,7 +150,7 @@ Schema additions + locked design decisions for Slice 7 are recorded in `PROJECT.
 | Onboarding pass — empty-feed state for new users | ✅ Shipped — `WelcomeCallout` + actionable empty states |
 | 30–50 seed worlds — build / source CC-licensed `.glb` | ⬜ |
 | Basic analytics — Vercel Web Analytics (free on Hobby) | 🟡 Code wired (Vercel Web Analytics, free on Hobby); founder must toggle Analytics on in the Vercel dashboard to activate |
-| Launch plan: r/threejs + r/blenderhelp first, X/Bluesky parallel, HN last after 200+ users | ⬜ |
+| Launch plan: r/threejs + r/blenderhelp first, X/Bluesky parallel, HN last after 200+ users | 🟡 Draft copy shipped in `docs/launch-posts.md` (5 posts: r/threejs · r/WebGL · r/blender · X/Bluesky · Show HN) + before-posting checklist + after-launch dashboard. Founder posts when ready. |
 | First public launch (mark date when done) | ⬜ |
 
 ## 4. Known Issues / Follow-ups (Open)
