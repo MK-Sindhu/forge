@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Mock hoisting
@@ -71,6 +71,8 @@ const DB_WORLD_ROW = {
   likesCount: 3,
   views: 42,
   createdAt: new Date("2026-01-15T10:00:00.000Z"),
+  // Phase 2 — scene graph columns (null = legacy world)
+  sceneGraph: null,
   user: {
     id: "db-user-uuid-001",
     username: "alice",
@@ -93,6 +95,7 @@ const DB_WORLD_ROW = {
     },
   ],
   tags: [],
+  assets: [],  // Phase 2 — empty for legacy worlds
 };
 
 // DB user row returned by the user-lookup chain (signed-in path).
@@ -333,6 +336,9 @@ describe("GET /api/worlds/[id] — Success", () => {
       "tags",
       "isLikedByCurrentUser",
       "isRepostedByCurrentUser",
+      // Phase 2 additions
+      "sceneGraph",
+      "assets",
     ]);
     const actualKeys = new Set(Object.keys(body));
 
@@ -527,5 +533,184 @@ describe("GET /api/worlds/[id] — isRepostedByCurrentUser (signed-in)", () => {
     expect(body.isRepostedByCurrentUser).toBe(false);
     // Repost-lookup must NOT be called — bail out after missing user row.
     expect(mockSelectFrom).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Block G — Phase 2 scene graph + assets (sub-slice 8.1)
+// ---------------------------------------------------------------------------
+
+// A hand-crafted minimal valid v1 scene graph for use in the tests below.
+const ASSET_UUID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+
+const VALID_SCENE_GRAPH_V1 = {
+  schemaVersion: 1,
+  objects: [
+    {
+      id: "obj_1",
+      assetId: ASSET_UUID,
+      position: [0, 0, 0],
+      rotation: [0, 0, 0],
+      scale: [1, 1, 1],
+    },
+  ],
+  lights: [
+    { type: "ambient", intensity: 0.5, color: "#ffffff" },
+    { type: "sun", intensity: 1, direction: [5, 5, 5], color: "#ffffff" },
+  ],
+  environment: { skybox: "studio", fog: null },
+  spawnPoints: [{ id: "default", position: [0, 1.6, 5], rotation: [0, 0, 0] }],
+  camera: { position: [3, 3, 5], target: [0, 0, 0], fov: 50 },
+};
+
+const ASSET_ROW_1 = {
+  id: ASSET_UUID,
+  name: "Rock Formation",
+  glbUrl: "https://cdn.example.com/assets/user1/rock.glb",
+  glbSizeBytes: 102400,
+};
+
+describe("GET /api/worlds/[id] — Phase 2 scene graph + assets", () => {
+  // Spy on console.error so parse-failure tests can assert it was called
+  // and so noise doesn't pollute the test output for other tests.
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mockAuth.mockResolvedValue({ userId: null });
+    mockCountQuery.mockResolvedValue([{ count: 0 }]);
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
+  });
+
+  // Test 1 — Legacy world: explicit assertion that null + [] round-trips correctly.
+  it("returns sceneGraph: null and assets: [] for a legacy world with no scene graph", async () => {
+    mockFindFirst.mockResolvedValue({
+      ...DB_WORLD_ROW,
+      sceneGraph: null,
+      assets: [],
+    });
+
+    const [req, ctx] = makeRequest(WORLD_ID);
+    const res = await GET(req, ctx);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.sceneGraph).toBeNull();
+    expect(body.assets).toEqual([]);
+  });
+
+  // Test 2 — Scene-graph world with one asset.
+  it("returns the parsed sceneGraph and mapped assets for a scene-graph world with one asset", async () => {
+    mockFindFirst.mockResolvedValue({
+      ...DB_WORLD_ROW,
+      sceneGraph: VALID_SCENE_GRAPH_V1,
+      assets: [ASSET_ROW_1],
+    });
+
+    const [req, ctx] = makeRequest(WORLD_ID);
+    const res = await GET(req, ctx);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+
+    // sceneGraph should deep-equal the parsed (defaults-filled) v1 graph.
+    expect(body.sceneGraph).toMatchObject({
+      schemaVersion: 1,
+      objects: [
+        expect.objectContaining({
+          id: "obj_1",
+          assetId: ASSET_UUID,
+          position: [0, 0, 0],
+          rotation: [0, 0, 0],
+          scale: [1, 1, 1],
+        }),
+      ],
+    });
+
+    // assets response shape: `sizeBytes` (not `glbSizeBytes` — DB column renamed at API boundary).
+    expect(body.assets).toHaveLength(1);
+    expect(body.assets[0]).toEqual({
+      id: ASSET_UUID,
+      name: "Rock Formation",
+      glbUrl: "https://cdn.example.com/assets/user1/rock.glb",
+      sizeBytes: 102400,   // mapped from glbSizeBytes
+    });
+
+    // The raw DB column name must NOT leak through.
+    expect(body.assets[0]).not.toHaveProperty("glbSizeBytes");
+  });
+
+  // Test 3 — Multiple assets, sorted by createdAt DESC (pre-sorted in mock to match DB orderBy).
+  it("preserves the asset order returned by the DB (sorted by createdAt DESC)", async () => {
+    const asset1 = { id: "aaaa0001-0000-0000-0000-000000000001", name: "Asset A", glbUrl: "https://cdn.example.com/a.glb", glbSizeBytes: 1000 };
+    const asset2 = { id: "aaaa0002-0000-0000-0000-000000000002", name: "Asset B", glbUrl: "https://cdn.example.com/b.glb", glbSizeBytes: 2000 };
+    const asset3 = { id: "aaaa0003-0000-0000-0000-000000000003", name: "Asset C", glbUrl: "https://cdn.example.com/c.glb", glbSizeBytes: 3000 };
+
+    // The DB orderBy is DESC(createdAt); the mock provides rows already in that order.
+    mockFindFirst.mockResolvedValue({
+      ...DB_WORLD_ROW,
+      sceneGraph: { schemaVersion: 1, objects: [] },
+      assets: [asset3, asset2, asset1],
+    });
+
+    const [req, ctx] = makeRequest(WORLD_ID);
+    const res = await GET(req, ctx);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.assets).toHaveLength(3);
+    // Order must be preserved exactly as returned by the query layer.
+    expect(body.assets[0].name).toBe("Asset C");
+    expect(body.assets[1].name).toBe("Asset B");
+    expect(body.assets[2].name).toBe("Asset A");
+  });
+
+  // Test 4 — Malformed scene_graph in DB falls through to null (never 500).
+  it("returns sceneGraph: null (not 500) and calls console.error when scene_graph is malformed", async () => {
+    // An object with an unknown schemaVersion — parseSceneGraph will throw.
+    mockFindFirst.mockResolvedValue({
+      ...DB_WORLD_ROW,
+      sceneGraph: { schemaVersion: 999, garbage: true },
+      assets: [],
+    });
+
+    const [req, ctx] = makeRequest(WORLD_ID);
+    const res = await GET(req, ctx);
+    const body = await res.json();
+
+    // Must be a 200, not a 500 — route must absorb the parse error.
+    expect(res.status).toBe(200);
+    expect(body.sceneGraph).toBeNull();
+
+    // The route must log the error so it's observable in production logs.
+    expect(consoleErrorSpy).toHaveBeenCalledOnce();
+  });
+
+  // Test 5 — Minimal scene graph (only schemaVersion: 1) fills all defaults via Zod.
+  it("returns sceneGraph with Zod defaults when only schemaVersion is provided in the DB row", async () => {
+    mockFindFirst.mockResolvedValue({
+      ...DB_WORLD_ROW,
+      sceneGraph: { schemaVersion: 1 },
+      assets: [],
+    });
+
+    const [req, ctx] = makeRequest(WORLD_ID);
+    const res = await GET(req, ctx);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.sceneGraph).not.toBeNull();
+
+    // Zod defaults must fill every required field.
+    expect(body.sceneGraph.objects).toEqual([]);
+    expect(body.sceneGraph.lights).toHaveLength(2);
+    expect(body.sceneGraph.environment).toEqual({ skybox: "studio", fog: null });
+    expect(body.sceneGraph.spawnPoints).toHaveLength(1);
+    expect(body.sceneGraph.spawnPoints[0].id).toBe("default");
+    expect(body.sceneGraph.camera.fov).toBe(50);
   });
 });

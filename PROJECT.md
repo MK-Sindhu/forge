@@ -3,8 +3,8 @@
 > The "what are we doing this week" doc. For the long arc, see `ROADMAP.md`.
 
 **Last updated:** 2026-05-24
-**Current phase:** Phase 1 — Launch
-**Current slice:** None — Slice 7 shipped 2026-05-24; awaiting prod migrations + smoke + launch ops
+**Current phase:** Phase 2 — Architectural Pivot (Phase 1 launch ops deferred per founder; see `DEFERRED.md`)
+**Current slice:** Slice 8.1 (Scene Graph Foundation) shipped 2026-05-26; 8.2 (Scene Graph API) next
 **Builder:** Solo (student)
 **Build tool:** Claude Code
 
@@ -127,6 +127,8 @@ Format: date — decision — reasoning.
 - **2026-05-23** — Folder-watcher CLI: in Phase 2, one-day time box, ships last so it can be cut cleanly if scope pressure hits.
 - **2026-05-23** — Tags free-form (not curated taxonomy). Trending uses simple `likes × decay`. Notifications scoped to like / comment / follow / new-world-from-followee.
 - **2026-05-24** — Slice 7 plan-time decisions: (a) view-count storage = `world_views` table with `UNIQUE(viewer_id, world_id, day)` + recount of `worlds.views` (matches likes recount-from-source pattern), NOT app-cache. (b) Notification timing = AFTER the action's transaction commits, in a try/catch best-effort call (notification failure must NEVER break a like/comment/follow/upload). (c) Anonymous views ignored — only signed-in views increment `worlds.views` (no IP-hash, no session cookie, predictable + no PII). (d) Migration strategy = one file per sub-slice (0006–0009) NOT one big 0006 — migrations are immutable once applied, per-sub-slice files enable incremental ship + smoke. (e) Tab order = Recent → Trending → Following (Trending public, Following auth-gated). (f) Search via Postgres FTS + GIN index on a DB-managed `worlds.search_vector` column NOT in the Drizzle schema — populated by 2 triggers (BEFORE on worlds for title/desc changes; AFTER on world_tags for tag-list changes).
+- **2026-05-26** — **Strategic pivot: skip remaining Phase 1 launch ops (DMCA email, attorney review of Terms/Privacy, public launch posts) and start Phase 2 immediately.** Defies ROADMAP's "wait for Phase 1 exit before Phase 2" guidance. Founder rationale: the launch was for personal validation; move to the real product (scene graph + editor). Trade accepted: Phase 2 ships against the 31-world prod platform with no public traffic to break — actually safer for an architectural hinge. Public launch happens post-Phase-2. Deferred items tracked in `DEFERRED.md` (new file; loaded by forge-lead at session start but not proactively raised).
+- **2026-05-26** — Phase 2 plan-time decisions (sub-slice 8.1): (a) Scene-graph format = roll-your-own minimal versioned JSON (NOT USD, NOT full glTF extensions); `{ schemaVersion: 1, ... }` from day one for future-proof migrations. (b) Storage = new `worlds.scene_graph jsonb` column, nullable — NULL means legacy GLB-only world (renderer branches on this). (c) Asset model = new `world_assets` table; world-scoped only in Phase 2 (cross-world asset library is Phase 5). R2 keys at `assets/{userId}/{assetId}/asset.glb` (reuse `forge-glb` bucket, new prefix). (d) Versioning = drafts + published; `world_versions` rows are immutable snapshots; autosave drafts (every ~2s) + manual "Save as version" + manual "Publish" (8.4 ships this UX). (e) Rotation encoding = Euler vec3 in v1 (editor simplicity, document precision trade); switch to quaternion in v2 when an animation system needs it. (f) v1 scene-graph stays truly minimal — no per-object material override, no per-object lighting, no bounding-volume metadata. (g) Folder-watcher CLI in 8.3 = **SHIP IT** (one-day timebox; cut cleanly if it overruns). (h) AI editor assist (8.6) + all AI integration = **PARKED ENTIRELY** until founder asks (added to `DEFERRED.md`). (i) "Web native" future option (PWA / WebGPU / deeper web-platform APIs) = architecturally preserved via API-first design; no decision yet (flagged in `DEFERRED.md`).
 
 ## 8. Parking Lot (with Phase Tags)
 

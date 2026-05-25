@@ -10,6 +10,7 @@ import {
   primaryKey,
   unique,
   check,
+  jsonb,
 } from "drizzle-orm/pg-core";
 import { relations, sql, desc } from "drizzle-orm";
 
@@ -45,12 +46,60 @@ export const worlds = pgTable(
     likesCount: integer("likes_count").notNull().default(0),
     views: integer("views").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // Phase 2 — scene graph columns
+    // NULL = legacy GLB-only world; populated when a scene graph is saved
+    sceneGraph: jsonb("scene_graph"),
+    // Set by 8.2's publish endpoint; nullable FK to world_versions.id
+    publishedVersionId: uuid("published_version_id"),
   },
   (t) => [
     index("worlds_user_id_idx").on(t.userId),
     index("worlds_created_at_idx").on(t.createdAt),
   ]
 );
+
+// ---------------------------------------------------------------------------
+// world_assets
+// Phase 2 — per-world reusable .glb assets that compose into scene graphs.
+// Scoped to a single world in Phase 2; cross-world asset library = Phase 5.
+// kind CHECK allows only 'glb' in v1.
+// ---------------------------------------------------------------------------
+export const worldAssets = pgTable("world_assets", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  worldId: uuid("world_id").notNull().references(() => worlds.id, { onDelete: "cascade" }),
+  uploaderId: uuid("uploader_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  name: text("name").notNull(),
+  glbUrl: text("glb_url").notNull(),
+  glbSizeBytes: integer("glb_size_bytes").notNull(),
+  kind: text("kind").notNull().default("glb"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("world_assets_world_id_created_at_idx").on(t.worldId, desc(t.createdAt)),
+  check("world_assets_kind_check", sql`${t.kind} IN ('glb')`),
+]);
+
+// ---------------------------------------------------------------------------
+// world_versions
+// Phase 2 — immutable scene-graph snapshots; every save = new row.
+// parentVersionId is a self-reference (FK added in migration to avoid
+// forward-declaration issues; Drizzle treats it as a plain uuid column here).
+// status CHECK: 'draft' | 'published'.
+// ---------------------------------------------------------------------------
+export const worldVersions = pgTable("world_versions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  worldId: uuid("world_id").notNull().references(() => worlds.id, { onDelete: "cascade" }),
+  authorId: uuid("author_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  versionNumber: integer("version_number").notNull(),
+  sceneGraph: jsonb("scene_graph").notNull(),
+  status: text("status").notNull().default("draft"),
+  label: text("label"),
+  parentVersionId: uuid("parent_version_id"),  // self-reference; FK in migration
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("world_versions_world_id_version_idx").on(t.worldId, desc(t.versionNumber)),
+  unique("world_versions_world_version_unique").on(t.worldId, t.versionNumber),
+  check("world_versions_status_check", sql`${t.status} IN ('draft', 'published')`),
+]);
 
 // ---------------------------------------------------------------------------
 // world_media
@@ -154,6 +203,14 @@ export const worldsRelations = relations(worlds, ({ one, many }) => ({
   reports: many(reports),
   // Slice 7.1 — tags
   tags: many(worldTags),
+  // Phase 2 — scene graph
+  assets: many(worldAssets),
+  versions: many(worldVersions, { relationName: "worldVersion" }),
+  publishedVersion: one(worldVersions, {
+    fields: [worlds.publishedVersionId],
+    references: [worldVersions.id],
+    relationName: "publishedVersion",
+  }),
 }));
 
 export const worldMediaRelations = relations(worldMedia, ({ one }) => ({
@@ -429,5 +486,33 @@ export const notificationsRelations = relations(notifications, ({ one }) => ({
   comment: one(comments, {
     fields: [notifications.commentId],
     references: [comments.id],
+  }),
+}));
+
+// ---------------------------------------------------------------------------
+// relations (Phase 2 additions)
+// ---------------------------------------------------------------------------
+export const worldAssetsRelations = relations(worldAssets, ({ one }) => ({
+  world: one(worlds, { fields: [worldAssets.worldId], references: [worlds.id] }),
+  uploader: one(users, { fields: [worldAssets.uploaderId], references: [users.id] }),
+}));
+
+export const worldVersionsRelations = relations(worldVersions, ({ one }) => ({
+  world: one(worlds, {
+    fields: [worldVersions.worldId],
+    references: [worlds.id],
+    relationName: "worldVersion",
+  }),
+  author: one(users, { fields: [worldVersions.authorId], references: [users.id] }),
+  parent: one(worldVersions, {
+    fields: [worldVersions.parentVersionId],
+    references: [worldVersions.id],
+    relationName: "parent",
+  }),
+  // Back-side of the publishedVersion relation on worldsRelations
+  publishedFor: one(worlds, {
+    fields: [worldVersions.id],
+    references: [worlds.publishedVersionId],
+    relationName: "publishedVersion",
   }),
 }));

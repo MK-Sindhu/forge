@@ -22,7 +22,7 @@ This catches drift between what was intended (in the spec) and what was built. I
 ## Stack
 
 - **Framework:** Vitest (configured in `vitest.config.ts`)
-- **Current state:** 417 tests across 21 test files, all passing after sub-slice 7.5 integration tests
+- **Current state:** 445 tests across 22 test files, all passing after Phase 2 sub-slice 8.1 route extension tests
 
 ## File Structure
 
@@ -96,7 +96,9 @@ Per-file test counts verified by `npx vitest run --reporter=json` on commit `127
 | 7.3 | `src/app/api/worlds/[id]/views/route.test.ts` (13 new) · `src/db/schema.test.ts` (1 new assertion) | **+14** | View count auth (401 × 2, 403 suspended), 400 invalid uuid, 404 world not found, happy path insert + recount + update, idempotency (same day no-op still writes recount), 503 DB error; `worldViews` schema export |
 | 7.5 | `src/app/api/notifications/route.test.ts` (24) · `src/app/api/notifications/mark-read/route.test.ts` (14) · `src/app/api/notifications/unread-count/route.test.ts` (8) · `src/lib/notifications.test.ts` (14) · `src/db/schema.test.ts` (1 new assertion) | **+61** | Notification feed: auth, cursor pagination (nextCursor populated/null, cursor forwarded, limit default/clamp/validate), response shape (actor/world/comment flatten, ISO timestamps, null fields), 503 DB error. Mark-read: body validation (neither ids nor all → 400, non-UUID in ids → 400), mark-all happy + zero, mark specific ids happy + already-read → 0, both all+ids accepted. Unread-count: auth, happy path count (numeric coercion), zero, 503. notify() helper: correct insert values, null for omitted fields, self-notification suppression (userId===actorId skips insert, null actorId is not self), DB error swallowed + console.error called. notifyMany(): bulk insert in one call, self-actor filtered, empty-after-filter no-ops, DB error swallowed. `notifications` schema export asserts all 8 columns. |
 | 7.5 integration | **MODIFY** `src/app/api/worlds/[id]/likes/route.test.ts` (+4) · `src/app/api/worlds/[id]/comments/route.test.ts` (+6) · `src/app/api/users/[username]/follow/route.test.ts` (+3) · `src/app/api/worlds/route.test.ts` (+3) | **+15** (total **417**) | Closes the gap: the 4 write routes that call notify/notifyMany after their transaction were not previously asserting the integration. New tests: likes POST calls notify with correct owner/actor/world shape; self-actor case confirmed at route level (suppression is helper's job); likes DELETE does not call notify; comments POST calls notify with commentId from the new row; 201 still returned when notify throws; DELETE + GET do not call notify; follow POST calls notify with followee/follower IDs; DELETE unfollow does not call notify; world POST calls notifyMany with N follower entries; 0 followers → notifyMany not called; 201 still returned when notifyMany throws. Mock pattern: `vi.mock("@/lib/notifications", () => ({ notify: vi.fn(), notifyMany: vi.fn() }))` — see Mocking Patterns above for rationale. The followers fanout `.where()` thenable pattern is documented in Mocking Patterns above. |
-| **Total** | **21 files** | **417 tests** | All passing after sub-slice 7.5 integration tests |
+| 8.1 (scene-graph schema) | **CREATE** `src/lib/scene-graph/schema.test.ts` (23) | **+23** (total **440**) | Pure Zod schema tests — no mocks needed (no external I/O). Covers: `SCENE_GRAPH_SCHEMA_VERSION === 1`; `emptySceneGraph()` is valid + populates all defaults (objects `[]`, 2 lights, skybox `"studio"`, fog `null`, 1 spawn point `id="default"`, fov `50`); `parseSceneGraph({ schemaVersion: 1 })` fills defaults; unknown schemaVersion (2) throws; null/string/empty-object inputs throw; JSON round-trip idempotent; `ObjectSchema` accepts valid object + rotation/scale defaults, rejects non-UUID assetId; `LightSchema` discriminated union accepts sun + ambient + defaults color, rejects `"spotlight"`; `EnvironmentSchema` rejects unknown skybox, accepts `"sunset"`, defaults fog to `null`; Vec3 arity check (2-element tuple fails); ColorHex regex (non-hex fails, 3-digit shorthand fails). |
+| 8.1 (route extension) | **MODIFY** `src/app/api/worlds/[id]/route.test.ts` (+5, Block G) | **+5** (total **445**) | Phase 2 `sceneGraph` + `assets` fields on `GET /api/worlds/[id]`. Covers: (1) legacy world explicit — `sceneGraph: null`, `assets: []`; (2) scene-graph world with one asset — `parseSceneGraph` output deep-equal + response key rename `glbSizeBytes → sizeBytes`, raw column must not leak; (3) multiple assets preserve DB order (pre-sorted DESC by createdAt); (4) malformed `scene_graph` (unknown schemaVersion) falls through to `null` + `console.error` called once, response still 200; (5) minimal `{ schemaVersion: 1 }` in DB — Zod defaults fill all fields (`objects: []`, 2 lights, `skybox: "studio"`, `fog: null`, default spawn point, `fov: 50`). Mock strategy: extends existing `mockFindFirst` fixture with `sceneGraph` + `assets` fields — no new `vi.mock` needed. `console.error` spy via `vi.spyOn` in `beforeEach`, restored in `afterEach`. |
+| **Total** | **22 files** | **445 tests** | All passing after Phase 2 sub-slice 8.1 route extension tests |
 
 ## Common Test Cases for Every API Route
 
@@ -137,9 +139,8 @@ Tests run on every PR and push to `main` via `.github/workflows/ci.yml`. CI uses
 
 Scene graph API + browser editor introduces:
 
-- **Scene graph schema validation** — every mutation must produce a valid scene graph (Zod schema test)
-- **Versioning** — every save produces a new version, history retains correctly
-- **Operations vs replacements** — operations apply atomically and produce the same result as a full replacement
-- **Backward compat** — legacy `.glb`-only worlds still render correctly
-
-These will be in-scope when Phase 2 starts. Don't write them now.
+- **Scene graph schema validation** — `src/lib/scene-graph/schema.test.ts` is DONE (23 tests, sub-slice 8.1). Covers the full v1 Zod schema: object validation, light discriminated union, environment enum, Vec3 arity, ColorHex regex, defaults, parse helpers.
+- **`GET /api/worlds/[id]` extension** — DONE (task 6, sub-slice 8.1). 5 tests in Block G of `src/app/api/worlds/[id]/route.test.ts`: legacy null pass-through, scene-graph world parse + asset shape + column rename (`glbSizeBytes → sizeBytes`), multi-asset order preservation, malformed jsonb → null + console.error (never 500), minimal graph Zod defaults. All passing (445 total).
+- **Versioning** — every save produces a new version, history retains correctly (sub-slice 8.2)
+- **Operations vs replacements** — operations apply atomically and produce the same result as a full replacement (sub-slice 8.2)
+- **Backward compat** — legacy `.glb`-only worlds still render correctly — covered by test 1 in Block G (explicit `sceneGraph: null, assets: []` assertion).

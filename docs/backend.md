@@ -34,7 +34,7 @@ src/
     └── format-relative.ts # "5m ago" timestamps (used by frontend too)
 ```
 
-## Database Schema (Current — 11 Tables)
+## Database Schema (Current — 15 Tables)
 
 Authoritative source: `src/db/schema.ts`. This section is a reference summary.
 
@@ -49,7 +49,11 @@ The core entity. Each row = one published world.
 Key columns: `id`, `user_id`, `title`, `description`, `glb_url`, `glb_size_bytes`, `views` (int, default 0), `created_at`.
 Counters (denormalized, recount-from-source pattern): `likes_count`. Note: `comment_count` and `repost_count` are **not** stored on this table — they are computed from the `comments` and `reposts` tables at query time. There is no top-level `thumbnail_url`; thumbnails live in `world_media` with `type = 'thumbnail'`.
 
-Phase 2 additions (not yet): `scene_graph` JSONB, version history, asset model.
+Phase 2 columns (Phase 2.1):
+- `scene_graph` (jsonb, nullable) — NULL = legacy GLB-only world. Holds the latest draft if a draft newer than published exists, else the latest published scene graph. Renderer branches on this column.
+- `published_version_id` (uuid, nullable) — FK → `world_versions.id` ON DELETE SET NULL. Set by the 8.2 publish endpoint; NULL until a world has been published via the scene-graph API.
+
+Drizzle relations (Phase 2.1 additions): `assets: many(worldAssets)`, `versions: many(worldVersions, { relationName: "worldVersion" })`, `publishedVersion: one(worldVersions, { ..., relationName: "publishedVersion" })`.
 
 ### `world_media`
 Optional extra media on a world (preview video, up to 4 extra images).
@@ -101,6 +105,30 @@ Indexes:
 Drizzle relations: `recipient` (→ users, `relationName: "notificationRecipient"`), `actor` (→ users, `relationName: "notificationActor"`), `world` (→ worlds), `comment` (→ comments). Back-relations on `usersRelations`: `receivedNotifications` and `actedNotifications`.
 
 Self-notifications (userId === actorId) are suppressed in the `notify()` helper — no DB CHECK for this.
+
+### `world_assets`
+Phase 2.1. Per-world reusable `.glb` assets that compose into scene graphs. Scoped to a single world in Phase 2; cross-world asset library is Phase 5.
+
+Key columns: `id` (uuid PK), `world_id` (FK → worlds, CASCADE), `uploader_id` (FK → users, RESTRICT — preserves upload history even if user is deleted), `name` (text), `glb_url` (text), `glb_size_bytes` (int), `kind` (text, default `'glb'`), `created_at`.
+
+CHECK constraint `world_assets_kind_check`: `kind IN ('glb')`.
+
+Index `world_assets_world_id_created_at_idx`: `(world_id, created_at DESC)`.
+
+Drizzle relations: `world: one(worlds)`, `uploader: one(users)`.
+
+### `world_versions`
+Phase 2.1. Immutable scene-graph snapshots — every save creates a new row, full history retained.
+
+Key columns: `id` (uuid PK), `world_id` (FK → worlds, CASCADE), `author_id` (FK → users, RESTRICT), `version_number` (int), `scene_graph` (jsonb, NOT NULL), `status` (text, default `'draft'`), `label` (text, nullable), `parent_version_id` (uuid, nullable self-reference FK → `world_versions.id` ON DELETE SET NULL), `created_at`.
+
+CHECK constraint `world_versions_status_check`: `status IN ('draft', 'published')`.
+UNIQUE constraint `world_versions_world_version_unique`: `(world_id, version_number)`.
+
+Indexes:
+- `world_versions_world_id_version_idx` — `(world_id, version_number DESC)` for version history queries.
+
+Drizzle relations: `world: one(worlds, { relationName: "worldVersion" })`, `author: one(users)`, `parent: one(worldVersions, { relationName: "parent" })` (self-reference), `publishedFor: one(worlds, { relationName: "publishedVersion" })`.
 
 ### `worlds.search_vector` (DB-only, not in Drizzle schema)
 Slice 7.2. `tsvector` column added directly to the `worlds` table via migration `0007_slice7_search.sql`. **This column is intentionally absent from `src/db/schema.ts`.** It is Postgres-managed — triggers populate and maintain it automatically. Application code never writes to it directly. Drizzle queries against `worlds` simply don't see this column (no TS errors, no runtime errors). Queries that need to search use raw `sql` template literals: `sql\`search_vector @@ websearch_to_tsquery('english', ${q})\``.
@@ -174,7 +202,7 @@ Verified by walking `src/app/api/` (15 `route.ts` files as of Slice 6). `/api/fe
 | GET | `/api/me` | required | Returns (or creates) the DB user row for the signed-in Clerk user | 0 |
 | POST | `/api/uploads/sign` | required | Returns presigned R2 PUT URL | 1 |
 | POST | `/api/worlds` | required, active | Create a world (HEADs R2 keys, transactional insert); accepts optional `tags` array (max 5, normalized + validated); inserts `tags` + `world_tags` in the same transaction; fans out `new_world` notifications to followers post-commit | 1, 7.1, 7.5 |
-| GET | `/api/worlds/[id]` | public | Joins media + author + tags; includes `isLikedByCurrentUser`, `isRepostedByCurrentUser`; response includes `tags: { name: string }[]` | 1, 7.1 |
+| GET | `/api/worlds/[id]` | public | Joins media + author + tags + assets; includes `isLikedByCurrentUser`, `isRepostedByCurrentUser`; response includes `tags: { name: string }[]`; Phase 2 additions: `sceneGraph: SceneGraphV1 \| null` (parsed defensively; null = legacy or parse failure) and `assets: { id, name, glbUrl, sizeBytes }[]` (empty array for legacy worlds) | 1, 7.1, 8.1 |
 | POST | `/api/worlds/[id]/likes` | required, active | Like (idempotent, transactional recount); notifies world owner post-commit | 3, 7.5 |
 | DELETE | `/api/worlds/[id]/likes` | required, active | Unlike | 3 |
 | POST | `/api/users/[username]/follow` | required, active | Follow (idempotent, rejects self-follow); notifies followee post-commit | 3, 7.5 |
@@ -214,6 +242,24 @@ Key notes for this route:
 - Rate limit on `/api/uploads/sign`: the route has a TODO for rate-limiting but no implementation yet. Sequential uploads at ~1/world avoids the concern for now; raise this before adding parallelism.
 
 See `scripts/seed-worlds/README.md` for setup + auth instructions.
+
+## Scene-graph JSONB structure (`src/lib/scene-graph/schema.ts`)
+
+The `worlds.scene_graph` column is a nullable `jsonb` column (NULL = legacy single-GLB world). When present, the column always contains a v1 scene-graph document validated by the Zod schema in `src/lib/scene-graph/schema.ts`.
+
+The schema defines a versioned JSON document with:
+- `schemaVersion: 1` — literal discriminant. When v2 ships, extend `SceneGraphAny` to a `z.discriminatedUnion("schemaVersion", ...)`.
+- `objects: ObjectSchema[]` — positioned `.glb` assets; each references a `world_assets.id` (`assetId`) plus `position`, `rotation` (Euler radians), and `scale` Vec3 tuples.
+- `lights: LightSchema[]` — discriminated union of `sun` (directional) and `ambient` light types; world-scope only in v1.
+- `environment: EnvironmentSchema` — `skybox` preset enum + optional `fog` (color/near/far).
+- `spawnPoints: SpawnPointSchema[]` — at least one with `id: "default"` expected.
+- `camera: CameraSchema` — `position`, `target`, `fov` defaults.
+
+**Parsing at the API boundary** is handled by `parseSceneGraph(input: unknown): SceneGraphAny` — THROWS on invalid input. The GET handler wraps it in try/catch and returns `null` on failure so the client falls through to the legacy renderer. Never trust raw DB output; always call `parseSceneGraph`.
+
+**`emptySceneGraph(): SceneGraphV1`** — builds a fully-defaulted v1 document (all Zod `.default()` values applied). Used by 8.5's conversion tool and by tests.
+
+Exported symbols: `SCENE_GRAPH_SCHEMA_VERSION`, `SceneGraphV1` (Zod schema + TS type), `SceneGraphAny` (TS type, = `SceneGraphV1` today), `ObjectSchema`, `LightSchema`, `EnvironmentSchema`, `SpawnPointSchema`, `CameraSchema`, `parseSceneGraph`, `emptySceneGraph`.
 
 ## Phase 2 Prep (Scene Graph API)
 

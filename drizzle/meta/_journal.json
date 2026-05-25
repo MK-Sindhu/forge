@@ -71,6 +71,13 @@
       "when": 1779568000000,
       "tag": "0009_slice7_notifications",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1779569000000,
+      "tag": "0010_phase2_scene_graph_foundation",
+      "breakpoints": true
     }
   ]
 }

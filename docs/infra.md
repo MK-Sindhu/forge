@@ -102,16 +102,27 @@ Current migrations:
 0007_slice7_search.sql   ← adds worlds.search_vector tsvector + trigger functions + GIN index
 0008_slice7_views.sql          ← adds world_views table (viewer_id, world_id, day composite PK + FK constraints + world_views_world_id_idx)
 0009_slice7_notifications.sql  ← adds notifications table (user_id, type CHECK, actor/world/comment nullable FKs, read_at) + composite index + partial index WHERE read_at IS NULL
+0010_phase2_scene_graph_foundation.sql  ← Phase 2.1: adds worlds.scene_graph (jsonb, nullable) + worlds.published_version_id (uuid, nullable FK → world_versions); creates world_assets + world_versions tables with FK constraints + CHECK constraints + indexes
 ```
 
 **Note on `0007_slice7_search.sql`:** This migration defines three Postgres functions (`worlds_search_vector_build`, `worlds_search_vector_trigger_fn`, `world_tags_search_vector_trigger_fn`) and two triggers (`worlds_search_vector_trigger` BEFORE on `worlds`, `world_tags_search_vector_trigger` AFTER on `world_tags`). When applying to production, all three functions and both triggers must land cleanly — verify with `\df` and `\dT` in psql or a `SELECT proname FROM pg_proc WHERE proname LIKE 'worlds_%';` query after the migration runs.
 
 ## Object Storage (R2)
 
-- **Buckets:** `forge-glb` (world `.glb` files), `forge-media` (thumbnails, preview videos, extra images)
+- **Buckets:** `forge-glb` (world `.glb` files + Phase 2 world assets), `forge-media` (thumbnails, preview videos, extra images)
 - **Access:** public read, presigned PUT for uploads
 - **Client:** `src/lib/r2.ts` — **lazy-init S3Client** (doesn't read env at module load)
 - **Setup details:** see [`R2_SETUP.md`](./R2_SETUP.md)
+
+### R2 key layout
+
+| Kind | Bucket | Key format |
+|---|---|---|
+| World GLB (Phase 1) | `forge-glb` | `worlds/{userId}/{worldId}/world.glb` |
+| World media | `forge-media` | `worlds/{userId}/{worldId}/media/{mediaId}.{ext}` |
+| World assets (Phase 2) | `forge-glb` | `assets/{userId}/{assetId}/asset.glb` |
+
+Phase 2 assets reuse the `forge-glb` bucket under an `assets/` prefix. The server generates all keys — clients never pick paths.
 
 ### Why lazy-init matters
 
@@ -186,8 +197,10 @@ Run anytime to verify infra state:
 
 ```bash
 npm run build            # Clean build
-npm test                 # 328 tests pass
-npm run db:smoke         # All 11 tables present, current row counts (scripts/smoke.ts)
+npm test                 # 417 tests pass
+npm run db:smoke         # All tables present, current row counts (scripts/smoke.ts)
+                         # Note: smoke.ts queries 9 specific tables; DB has 15 total as of Phase 2.1
+                         # Use verify-8-1-schema.ts (or psql \dt) to confirm full table count
 git status               # Clean tree
 git log --oneline -5     # Recent commits
 ```

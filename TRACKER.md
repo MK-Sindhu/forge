@@ -27,7 +27,7 @@
 |---|---|---|
 | Phase 0 — Foundation | ✅ COMPLETE | Slices 0–6 shipped |
 | Phase 1 — Launch | 🟡 IN PROGRESS | Slice 7 ✅ verified 2026-05-25; launch ops next (Terms, DMCA, onboarding, seed worlds, analytics, public launch) |
-| Phase 2 — Architectural Pivot | ⬜ NOT STARTED | Scene graph API + multi-surface editing |
+| Phase 2 — Architectural Pivot | 🟡 IN PROGRESS | Sub-slice 8.1 (Scene Graph Foundation) shipped 2026-05-26; 8.2 (API) · 8.3 (upload + folder-watcher CLI) · 8.4 (browser editor) · 8.5 (back-compat conversion) next. 8.6 (AI assist) parked per founder direction. |
 | Phase 3 — Collaboration | ⬜ NOT STARTED | Async → Presence → Realtime edit |
 | Phase 4 — Living Worlds | ⬜ NOT STARTED | Interactivity + portals + scripting |
 | Phase 5 — Persistent Ecosystem | ⬜ NOT STARTED | Cross-world identity, asset library, full AI gen |
@@ -153,6 +153,35 @@ Schema additions + locked design decisions for Slice 7 are recorded in `PROJECT.
 | Launch plan: r/threejs + r/blenderhelp first, X/Bluesky parallel, HN last after 200+ users | 🟡 Draft copy shipped in `docs/launch-posts.md` (5 posts: r/threejs · r/WebGL · r/blender · X/Bluesky · Show HN) + before-posting checklist + after-launch dashboard. Founder posts when ready. |
 | OpenGraph + Twitter Card metadata | ✅ Shipped 2026-05-26 — site-wide defaults in `layout.tsx` (`metadataBase`, `title.template`, OG website + Twitter card); `generateMetadata` on `/world/[id]` (world thumbnail as OG image), `/profile/[username]` (avatar, world count), `/search` (dynamic title per `?q=`/`?tag=`). Static `metadata` on `/upload` + all `/legal/*` pages (clean browser tabs, template applied, no double-suffix). |
 | First public launch (mark date when done) | ⬜ |
+
+### Phase 2 — The Architectural Hinge
+
+#### Slice 8.1 — Scene Graph Foundation 🟢
+
+| | |
+|---|---|
+| Status | Shipped + deployed; prod migration + local smoke (hand-seed) pending |
+| What | Storage substrate for the scene-graph era. New `worlds.scene_graph jsonb` (nullable; NULL = legacy GLB-only world) + `worlds.published_version_id uuid` (8.2 will set) + `world_assets` table (per-world reusable `.glb`s under `assets/{userId}/{assetId}/asset.glb` R2 prefix) + `world_versions` table (immutable scene-graph snapshots, draft/published). New `src/lib/scene-graph/schema.ts` Zod v1 schema (`SceneGraphV1`: objects + lights + environment + spawnPoints + camera; Euler rotations; 8 skybox presets). New `SceneGraphRenderer` (R3F; lifts WorldViewer's Canvas + Bounds + OrbitControls + lighting + error boundary + LoadingOverlay scaffolding). `/world/[id]` branches between renderers: `scene_graph` present → new renderer, else → legacy WorldViewer. **No editor, no API mutations, no upload changes yet** — pure substrate. |
+| Schema additions | `worlds.scene_graph jsonb`, `worlds.published_version_id uuid`, `world_assets` table, `world_versions` table |
+| Migration | `0010_phase2_scene_graph_foundation.sql` (additive only — no existing row touched; all 31 prod worlds keep `glb_url`, `scene_graph` stays NULL) |
+| API surface | `GET /api/worlds/[id]` extended response: `sceneGraph: SceneGraphV1 \| null` + `assets: { id, name, glbUrl, sizeBytes }[]`. Defensive parse — malformed jsonb logs + falls through to `null` (legacy renderer takes over). No new routes. |
+| New helpers | `parseSceneGraph` + `emptySceneGraph` in `src/lib/scene-graph/schema.ts` |
+| New components | `scene-graph-renderer/SceneGraphRenderer.tsx` + `scene-graph-renderer/SceneGraphRendererClient.tsx` (dynamic `ssr: false` wrapper mirroring `WorldViewerClient`) |
+| Tests | 417 → 445 (+28: 23 schema/Zod tests + 5 GET-route Phase-2 tests) |
+| Smoke checklist | (1) All 31 legacy worlds render identically · (2) `GET /api/worlds/[id]` for legacy returns `sceneGraph: null, assets: []` · (3) Hand-seed a scene-graph world via SQL, visit `/world/[id]` → SceneGraphRenderer fires · (4) Hand-seed 2-object scene-graph world → both render with correct transforms, `useGLTF` cache hit · (5) Hand-seed malformed `scene_graph` → falls through to legacy, no 500 · (6) `npm run db:smoke` confirms `world_assets` + `world_versions` exist · (7) CI passes |
+
+**Sub-slices in order:**
+
+| # | Sub-slice | Status |
+|---|---|---|
+| 8.1 | Scene Graph Foundation — storage substrate + renderer split | 🟢 |
+| 8.2 | Scene Graph API — operations-based REST + permissions + audit log | ⬜ |
+| 8.3 | Improved Upload Pipeline + Folder-Watcher CLI | ⬜ |
+| 8.4 | Browser Editor — first client of the API | ⬜ |
+| 8.5 | Backward Compatibility + Conversion Tool | ⬜ |
+| ~~8.6~~ | ~~AI Editor Assist~~ — PARKED per founder direction, see `DEFERRED.md` | — |
+
+Locked design decisions for Phase 2 are recorded in `PROJECT.md` §7 decision log and the plan file. See `docs/3d.md` "Phase 2 — Scene Graph Rendering" for renderer architecture and `src/lib/scene-graph/schema.ts` for the v1 schema.
 
 ## 4. Known Issues / Follow-ups (Open)
 

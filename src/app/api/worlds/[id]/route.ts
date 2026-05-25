@@ -20,6 +20,7 @@ import { eq, and, count } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { worlds, likes, users, comments, reposts } from "@/db/schema";
+import { parseSceneGraph, type SceneGraphV1 } from "@/lib/scene-graph/schema";
 
 // ---------------------------------------------------------------------------
 // Param validation
@@ -43,9 +44,20 @@ export async function GET(
     return NextResponse.json({ error: "Invalid world id" }, { status: 400 });
   }
 
-  // --- 2. Query world + author + media --------------------------------------
+  // --- 2. Query world + author + media + assets ----------------------------
   const row = await db.query.worlds.findFirst({
     where: eq(worlds.id, parsed.data),
+    columns: {
+      id: true,
+      title: true,
+      description: true,
+      glbUrl: true,
+      glbSizeBytes: true,
+      likesCount: true,
+      views: true,
+      createdAt: true,
+      sceneGraph: true,   // Phase 2 — nullable jsonb; NULL = legacy world
+    },
     with: {
       user: {
         columns: { id: true, username: true, avatarUrl: true },
@@ -65,12 +77,33 @@ export async function GET(
           tag: { columns: { name: true } },
         },
       },
+      assets: {           // Phase 2 — world_assets rows (empty for legacy worlds)
+        columns: { id: true, name: true, glbUrl: true, glbSizeBytes: true },
+        orderBy: (a, { desc }) => [desc(a.createdAt)],
+      },
     },
   });
 
   // --- 3. 404 if not found --------------------------------------------------
   if (!row) {
     return NextResponse.json({ error: "World not found" }, { status: 404 });
+  }
+
+  // --- 3b. Parse scene graph defensively -----------------------------------
+  // worlds.scene_graph is nullable jsonb. NULL = legacy GLB-only world.
+  // Parse failure (shouldn't happen — column is internally controlled) logs +
+  // falls through to null so the client renderer falls back to legacy glbUrl.
+  let sceneGraph: SceneGraphV1 | null = null;
+  if (row.sceneGraph != null) {
+    try {
+      sceneGraph = parseSceneGraph(row.sceneGraph) as SceneGraphV1;
+    } catch (err) {
+      console.error(
+        `[GET worlds/${parsed.data}] invalid scene_graph in DB, falling through to legacy:`,
+        err
+      );
+      sceneGraph = null;
+    }
   }
 
   // --- 4. commentsCount — always returned, not auth-gated -----------------
@@ -141,5 +174,13 @@ export async function GET(
     tags: row.tags.map(wt => ({ name: wt.tag.name })),
     isLikedByCurrentUser,
     isRepostedByCurrentUser,
+    // Phase 2 — scene graph + asset list
+    sceneGraph,
+    assets: row.assets.map((a) => ({
+      id: a.id,
+      name: a.name,
+      glbUrl: a.glbUrl,
+      sizeBytes: a.glbSizeBytes,
+    })),
   });
 }

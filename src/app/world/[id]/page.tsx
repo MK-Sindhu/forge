@@ -7,6 +7,8 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { users, worlds } from "@/db/schema";
 import { WorldViewerClient } from "./WorldViewerClient";
+import { SceneGraphRendererClient } from "@/components/scene-graph-renderer/SceneGraphRendererClient";
+import type { SceneGraphV1 } from "@/lib/scene-graph/schema";
 import MediaCarousel from "@/components/media-carousel/MediaCarousel";
 import { LikeButton } from "@/components/like-button/LikeButton";
 import { RepostButton } from "@/components/repost-button/RepostButton";
@@ -168,9 +170,19 @@ export default async function WorldPage(
         </div>
       )}
 
-      {/* 3D viewer — fills a fixed-aspect container */}
+      {/* 3D viewer — fills a fixed-aspect container.
+          Branches on sceneGraph: scene-graph worlds use SceneGraphRendererClient;
+          legacy single-GLB worlds (sceneGraph === null) use WorldViewerClient. */}
       <div className="aspect-video w-full overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-800">
-        <WorldViewerClient glbUrl={world.glbUrl} ariaLabel={`3D world: ${world.title}`} />
+        {(world.sceneGraph as SceneGraphV1 | null) ? (
+          <SceneGraphRendererClient
+            sceneGraph={world.sceneGraph as SceneGraphV1}
+            assets={world.assets as Array<{ id: string; name: string; glbUrl: string; sizeBytes: number }>}
+            ariaLabel={`3D world: ${world.title}`}
+          />
+        ) : (
+          <WorldViewerClient glbUrl={world.glbUrl} ariaLabel={`3D world: ${world.title}`} />
+        )}
       </div>
 
       {/* Description (only if present) */}
