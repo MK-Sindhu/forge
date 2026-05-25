@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>thumb-viewer</title>
+    <style>
+      html, body { margin: 0; padding: 0; background: transparent; }
+      canvas { display: block; width: 100vw; height: 100vh; background: transparent; }
+    </style>
+  </head>
+  <body>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from "three";
+      import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+      import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+
+      const params = new URLSearchParams(window.location.search);
+      const glbUrl = params.get("glb");
+      if (!glbUrl) {
+        window.__error = "missing ?glb= param";
+        throw new Error(window.__error);
+      }
+
+      const scene = new THREE.Scene();
+      // Transparent background — PNG with alpha channel
+      const camera = new THREE.PerspectiveCamera(40, 1, 0.01, 10000);
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setClearColor(0x000000, 0); // transparent
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.0;
+      document.body.appendChild(renderer.domElement);
+
+      // Studio-ish IBL environment for nicer PBR
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+      // Gentle fill lights on top of IBL
+      const ambient = new THREE.AmbientLight(0xffffff, 0.3);
+      scene.add(ambient);
+      const dir = new THREE.DirectionalLight(0xffffff, 1.2);
+      dir.position.set(5, 8, 6);
+      scene.add(dir);
+      const fill = new THREE.DirectionalLight(0xbbcfff, 0.4);
+      fill.position.set(-4, -2, -3);
+      scene.add(fill);
+
+      function frameModel(model) {
+        const box = new THREE.Box3().setFromObject(model);
+        if (!isFinite(box.min.x) || !isFinite(box.max.x)) {
+          throw new Error("model bbox is invalid");
+        }
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z) || 1;
+
+        const fovRad = camera.fov * (Math.PI / 180);
+        const dist = (maxDim / 2) / Math.tan(fovRad / 2);
+        // Pull back to give some breathing room
+        const cameraDist = dist * 1.6;
+
+        // 3/4 angle: slightly above + offset
+        const offsetDir = new THREE.Vector3(0.7, 0.5, 1.0).normalize();
+        camera.position.copy(center).addScaledVector(offsetDir, cameraDist);
+        camera.lookAt(center);
+        camera.near = Math.max(cameraDist / 100, 0.01);
+        camera.far = cameraDist * 100;
+        camera.updateProjectionMatrix();
+      }
+
+      const loader = new GLTFLoader();
+      loader.load(
+        glbUrl,
+        (gltf) => {
+          try {
+            const model = gltf.scene;
+            scene.add(model);
+            frameModel(model);
+            // Render once, then signal ready
+            renderer.render(scene, camera);
+            // A second render after a tick — gives the env map a chance to settle
+            requestAnimationFrame(() => {
+              renderer.render(scene, camera);
+              window.__ready = true;
+            });
+          } catch (err) {
+            window.__error = String(err && err.message ? err.message : err);
+          }
+        },
+        undefined,
+        (err) => {
+          window.__error = String(err && err.message ? err.message : err);
+        }
+      );
+
+      // Hard timeout — if nothing loads in 25s, bail
+      setTimeout(() => {
+        if (!window.__ready && !window.__error) {
+          window.__error = "render timed out (25s)";
+        }
+      }, 25000);
+    </script>
+  </body>
+</html>

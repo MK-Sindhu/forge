@@ -13,6 +13,7 @@
     "db:studio": "drizzle-kit studio",
     "db:smoke": "tsx scripts/smoke.ts",
     "db:seed-worlds": "tsx scripts/seed-worlds.ts",
+    "db:seed-thumbs": "tsx scripts/generate-thumbs.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -41,6 +42,7 @@
     "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
+    "playwright": "^1.60.0",
     "tailwindcss": "^4",
     "tsx": "^4.22.3",
     "typescript": "^5",

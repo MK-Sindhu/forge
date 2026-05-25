@@ -167,6 +167,7 @@ DATABASE_URL="postgresql://..." npm run db:migrate
 | `db:migrate` | `scripts/migrate.ts` | Applies pending SQL migrations to the database pointed at by `DATABASE_URL`. Override with `DATABASE_URL=... npm run db:migrate` to target prod. |
 | `db:smoke` | `scripts/smoke.ts` | Verifies all tables exist and returns row counts. Run after a migration to confirm the schema landed. |
 | `db:seed-worlds` | `scripts/seed-worlds.ts` | Bulk-uploads seed worlds from `scripts/seed-worlds/manifest.json`. Reads a local file manifest, presigns + PUTs each file to R2, then calls `POST /api/worlds` per entry. Sequential, idempotent (skips titles already in DB). See `scripts/seed-worlds/README.md` for setup + auth instructions. |
+| `db:seed-thumbs` | `scripts/generate-thumbs.ts` | Generates a transparent PNG thumbnail for every entry in `scripts/seed-worlds/manifest.json` by rendering its `.glb` headless in Chromium (Playwright) with a local three.js viewer at `scripts/generate-thumbs/viewer.html`. Idempotent — skips entries whose thumbnail file already exists. Run before `db:seed-worlds`. |
 
 All three scripts require `dotenv.config({ path: ".env.local" })` at the top — `.env` is not loaded by default (see `.env.local not .env` gotcha above).
 
