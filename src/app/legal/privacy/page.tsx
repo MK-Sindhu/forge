@@ -222,9 +222,15 @@ export default function PrivacyPage() {
             .
           </li>
           <li>
-            <strong>Vercel</strong> (hosting and CDN) — serves every request to
-            the FORGE web application. Vercel logs request IP addresses, paths,
-            and response codes. Vercel&rsquo;s practices are governed by the{" "}
+            <strong>Vercel</strong> (hosting, CDN, and analytics) — serves every
+            request to the FORGE web application and provides Vercel Web
+            Analytics: cookieless pageview tracking (pageviews, referrer,
+            page-load metrics, and country derived from your IP address — the IP
+            itself is then discarded and never stored). Vercel logs request IP
+            addresses, paths, and response codes for operational purposes. No
+            cookies are set by the analytics component; no cross-site tracking
+            occurs; no personal data is retained by the analytics product.
+            Vercel&rsquo;s practices are governed by the{" "}
             <a
               href="https://vercel.com/legal/privacy-policy"
               target="_blank"
@@ -262,23 +268,6 @@ export default function PrivacyPage() {
               className="underline hover:text-neutral-900 dark:hover:text-neutral-100"
             >
               Cloudflare Privacy Policy
-            </a>
-            .
-          </li>
-          <li>
-            <strong>Plausible Analytics</strong> (privacy-first, cookieless
-            pageview tracking) — tracks aggregate pageviews, referrer, browser,
-            OS, screen size, and country (derived from your IP address; the IP
-            itself is discarded and never stored). No personal data is
-            collected; no cookies are set; no cross-site tracking occurs.
-            Plausible&rsquo;s practices are governed by the{" "}
-            <a
-              href="https://plausible.io/privacy"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline hover:text-neutral-900 dark:hover:text-neutral-100"
-            >
-              Plausible Privacy Policy
             </a>
             .
           </li>
@@ -335,8 +324,8 @@ export default function PrivacyPage() {
           consent-banner regulations (such as the EU Cookie Directive).
         </p>
         <p className="text-neutral-700 dark:text-neutral-300">
-          Our analytics provider (Plausible) is cookieless by design — see §4
-          for details.
+          Our analytics provider (Vercel Web Analytics) is cookieless by design
+          — see §4 for details.
         </p>
       </section>
 

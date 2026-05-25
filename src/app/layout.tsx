@@ -7,6 +7,7 @@ import { eq, count, and, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { users, notifications } from "@/db/schema";
 import { NotificationBell } from "@/components/notification-bell/NotificationBell";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -50,8 +51,6 @@ export default async function RootLayout({
     }
   }
 
-  const plausibleDomain = process.env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN;
-
   return (
     <ClerkProvider>
       <html
@@ -59,13 +58,6 @@ export default async function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
       >
         <body className="flex min-h-full flex-col bg-white dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100">
-          {plausibleDomain && (
-            <script
-              defer
-              data-domain={plausibleDomain}
-              src="https://plausible.io/js/script.js"
-            />
-          )}
           {/* ----------------------------------------------------------------
               Top nav — uses Clerk's <Show> server component to branch on
               auth state without a client boundary at the layout level.
@@ -162,6 +154,10 @@ export default async function RootLayout({
               </nav>
             </div>
           </footer>
+
+          {/* Vercel Web Analytics — cookieless, no-op in local dev.
+              Activate via Vercel dashboard → forge project → Analytics → Enable. */}
+          <Analytics />
         </body>
       </html>
     </ClerkProvider>

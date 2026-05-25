@@ -27,8 +27,6 @@ jobs:
       R2_BUCKET_MEDIA: "forge-media"
       R2_PUBLIC_URL_GLB: "https://placeholder.r2.dev"
       R2_PUBLIC_URL_MEDIA: "https://placeholder.r2.dev"
-      # Plausible — empty string means no analytics script renders in CI builds
-      NEXT_PUBLIC_PLAUSIBLE_DOMAIN: ""
 
     steps:
       - name: Checkout

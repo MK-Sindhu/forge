@@ -31,7 +31,7 @@
 | 21 | Trending feed tab | 7 | ✅ Verified |
 | 22 | Notifications | 7 | ✅ Verified |
 | 23 | Onboarding callout for fresh users | launch-ops | ✅ Shipped |
-| 24 | Analytics (Plausible, env-gated) | launch-ops | 🟡 Code wired; needs Plausible account + `NEXT_PUBLIC_PLAUSIBLE_DOMAIN` in Vercel |
+| 24 | Analytics (Vercel Web Analytics) | launch-ops | 🟡 Code wired; needs Vercel dashboard toggle to activate |
 
 ---
 
@@ -281,18 +281,18 @@ Tab routing: `?status=open|resolved|dismissed` for report-status views; `?view=s
 
 **Stateless design:** `isFreshUser = !uploadedRow && !followsRow`. The callout disappears automatically the moment the user uploads their first world OR follows their first creator — no explicit dismiss, no cookie, no localStorage. This is intentional: the natural user action already solves the condition the callout targets.
 
-## 24. Analytics (Plausible, env-gated)
+## 24. Analytics (Vercel Web Analytics)
 
-**Launch-ops** · Privacy-first pageview tracking. Cookieless by design. No tracking script renders unless explicitly enabled in production.
+**Launch-ops** · Privacy-first pageview tracking. Cookieless by design. No env var required; the component is always present in the build and auto-activates once enabled in the Vercel dashboard.
 
 | Layer | Where |
 |---|---|
-| Frontend | `src/app/layout.tsx` renders `<script defer data-domain={...} src="https://plausible.io/js/script.js" />` ONLY when `process.env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN` is set. Empty / unset → no script. Inline server-rendered, no `next/script` wrapper needed. |
-| Backend | None. Plausible runs client-side; pageviews POST directly from the browser to plausible.io. FORGE servers see no analytics traffic. |
-| Env | `NEXT_PUBLIC_PLAUSIBLE_DOMAIN` (optional). Set to the Plausible site domain (e.g. `forge-black-eta.vercel.app`) in Vercel Production once a Plausible account exists. CI has the placeholder `""` so builds pass without rendering the script. |
-| Privacy | Plausible is cookieless; tracks pageviews + referrer + browser + OS + screen size + country (derived from IP, then IP discarded). No personal data leaves the browser. Privacy Policy §4 + §6 already describe this accurately. |
+| Frontend | `src/app/layout.tsx` mounts `<Analytics />` (from `@vercel/analytics/next`) as the last child of `<body>`, after the footer. This is Vercel's recommended placement — it does not block render of meaningful content. |
+| Backend | None. Analytics data flows from the browser/edge directly to Vercel's analytics pipeline. FORGE's own servers see no analytics traffic. |
+| Env | No env var needed. The component detects automatically whether it is running on Vercel and is a no-op in local dev (`npm run dev`) unless explicitly forced. |
+| Privacy | Vercel Web Analytics is cookieless; tracks pageviews + referrer + page-load performance metrics + country (derived from IP, then IP discarded). No personal data is retained. Privacy Policy §4 + §6 already describe this accurately. |
 
-**To activate:** see `docs/infra.md` "Analytics (Plausible)" section — create account, set the env var in Vercel, redeploy, verify a pageview lands in the Plausible dashboard.
+**To activate:** see `docs/infra.md` "Analytics (Vercel Web Analytics)" section — one click in the Vercel dashboard (forge project → Analytics → Enable), then verify a pageview appears within ~30 seconds.
 
 ## Parking Lot Features (Future Phases)
 

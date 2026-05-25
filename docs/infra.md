@@ -51,7 +51,6 @@
 | `R2_BUCKET_MEDIA` | Yes | `forge-media` |
 | `R2_PUBLIC_URL_GLB` | Yes | Public base URL for the GLB bucket |
 | `R2_PUBLIC_URL_MEDIA` | Yes | Public base URL for the media bucket |
-| `NEXT_PUBLIC_PLAUSIBLE_DOMAIN` | No | Analytics domain (e.g. `forge-black-eta.vercel.app`). If unset, no analytics script renders. See Analytics section below. |
 
 ### Important gotcha — env vars are duplicated
 
@@ -181,37 +180,46 @@ git log --oneline -5     # Recent commits
 - **GitHub Actions:** https://github.com/MK-Sindhu/forge/actions
 - **Clerk:** dashboard.clerk.com
 
-## Analytics (Plausible)
+## Analytics (Vercel Web Analytics)
 
-Plausible is wired but env-gated. Until `NEXT_PUBLIC_PLAUSIBLE_DOMAIN` is
-set in Vercel, no analytics script loads and no traffic goes to Plausible.
+Wired via `@vercel/analytics/next`. The `<Analytics />` component lives
+in the root layout (`src/app/layout.tsx`), mounted as the last child of
+`<body>`. No env vars to set. No third-party signup beyond Vercel itself.
 
 ### To enable in production
 
-1. Create a Plausible account at https://plausible.io/register
-   (cheapest plan is $9/mo for 10k monthly pageviews — fine for launch).
-2. Add the site `forge-black-eta.vercel.app` (or custom domain when it
-   lands) in the Plausible dashboard.
-3. In Vercel → Settings → Environment Variables, add:
-   - Key: `NEXT_PUBLIC_PLAUSIBLE_DOMAIN`
-   - Value: `forge-black-eta.vercel.app` (exactly what you set in Plausible)
-   - Scope: Production (and Preview if you want preview-deploy stats)
-4. Trigger a redeploy (push any commit or "Redeploy" in Vercel).
-5. Visit the site once; confirm a pageview lands in the Plausible
-   dashboard within ~30 seconds.
+1. Vercel dashboard → forge project → **Analytics** tab → **Enable**.
+2. That's it. The next deploy automatically starts capturing pageviews.
+3. Verify by loading the site once, then refresh the Analytics dashboard
+   in Vercel within ~30 seconds.
 
 ### What's tracked
 
-Plausible's default script: pageviews + referrer + browser + OS + screen
-size + country (derived from IP, then IP discarded). No cookies. No
-cross-site tracking. No personal data leaves the browser.
+Default Vercel Web Analytics: pageviews + referrer + page-load
+performance metrics + country (derived from IP, then IP discarded).
+Cookieless. No cross-site tracking. No personal data leaves the
+browser/edge.
+
+### Hobby tier limits
+
+Free on Vercel Hobby with the documented event limit (currently 2.5k
+events/month at time of wiring — check the Vercel dashboard for the
+current limit). For early launch this is plenty. If FORGE exceeds the
+limit, upgrade to Pro ($20/mo) or move to a self-hosted alternative.
+
+### Local dev
+
+`<Analytics />` is a no-op in local dev unless explicitly enabled. You
+will not see traffic show up while running `npm run dev` — that's
+intentional.
 
 ### Privacy Policy obligation
 
-If you add Plausible custom events (e.g. tracking specific button clicks),
-update the Privacy Policy §4 description before the deploy. Plausible
-custom events still don't use cookies but the policy should accurately
-describe what's tracked.
+Vercel Web Analytics is already documented in the Privacy Policy §4
+(third parties) + §6 (cookies). If you ever add custom events via
+`@vercel/analytics`'s `track()` function (e.g. to measure specific
+button clicks), update §4 to describe the events before that deploy
+goes live.
 
 ## When Things Break
 
