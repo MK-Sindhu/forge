@@ -31,7 +31,7 @@ A social platform for publishing 3D worlds. Creators upload `.glb` files, viewer
 | Storage | Cloudflare R2 — 2 buckets (forge-glb, forge-media), public read |
 | Branch state | `main` clean, in sync with `origin/main` |
 | Slices verified in prod | 1, 3, 6, 7 ✅ — 2, 4, 5 deployed but not yet smoke-tested |
-| In-flight | Launch ops (real Terms page, real DMCA email, unsuspend button, onboarding, seed worlds, analytics) |
+| In-flight | Launch ops — DMCA email + attorney review of Terms/Privacy + Vercel Analytics activation toggle + public launch posts. Seed worlds done (30 live as of 2026-05-26). |
 
 ## 3. Stack (Locked)
 

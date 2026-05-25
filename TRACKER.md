@@ -12,7 +12,7 @@
 |---|---|
 | Current phase | Phase 1 — Launch |
 | Current slice | None — Slice 7 verified in prod 2026-05-25; launch ops remaining |
-| In-flight | Launch ops (real Terms page, real DMCA email, unsuspend button, onboarding, seed worlds, analytics) |
+| In-flight | Launch ops — DMCA email + attorney review of Terms/Privacy + click Enable on Vercel Analytics + public launch posts |
 | Tests | 417 across 21 test files |
 | Commits on main | 25 (Slice 7 = 5 sub-slice commits da31b12 → e18dd6b · 2 layout hotfixes dd8c8f6 + 065d572 · status flip 218992f) |
 | Latest commit | `218992f` — docs: Slice 7 verified in prod 2026-05-25 — all 5 sub-slices ✅ |
@@ -148,7 +148,7 @@ Schema additions + locked design decisions for Slice 7 are recorded in `PROJECT.
 | Real DMCA email (currently `dmca@forge.example` placeholder) | ⬜ |
 | Unsuspend button in admin UI | ✅ Shipped — Suspended tab + `UnsuspendButton` on `/admin/reports?view=suspended` |
 | Onboarding pass — empty-feed state for new users | ✅ Shipped — `WelcomeCallout` + actionable empty states |
-| 30–50 seed worlds — build / source CC-licensed `.glb` | ⬜ Tool shipped (`scripts/seed-worlds.ts` + `npm run db:seed-worlds`). Founder: populate `scripts/seed-worlds/manifest.json` + run against prod. See `scripts/seed-worlds/README.md`. |
+| 30–50 seed worlds — build / source CC-licensed `.glb` | ✅ **30 worlds live in prod 2026-05-26** — 10 Khronos glTF samples (MIT) + 20 Quaternius Space Kit & Nature Pack models (CC0). Curated from 138 downloaded source models. Uploaded via the direct-mode escape hatch script (`db:seed-worlds-direct`) after the Vercel-API path was blocked by an ISP→Vercel routing issue + Clerk session-token quirks. Thumbnails auto-generated headless via Playwright + three.js (`db:seed-thumbs`). |
 | Basic analytics — Vercel Web Analytics (free on Hobby) | 🟡 Code wired (Vercel Web Analytics, free on Hobby); founder must toggle Analytics on in the Vercel dashboard to activate |
 | Launch plan: r/threejs + r/blenderhelp first, X/Bluesky parallel, HN last after 200+ users | 🟡 Draft copy shipped in `docs/launch-posts.md` (5 posts: r/threejs · r/WebGL · r/blender · X/Bluesky · Show HN) + before-posting checklist + after-launch dashboard. Founder posts when ready. |
 | First public launch (mark date when done) | ⬜ |
