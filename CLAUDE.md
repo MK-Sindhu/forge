@@ -7,6 +7,7 @@ Strategic / cross-cutting (always relevant):
 - `PROJECT.md` — current state, decisions, parking lot
 - `ROADMAP.md` — long arc, phases, vision
 - `TRACKER.md` — slice/task progress, what's done, what's left, what's broken
+- `DEFERRED.md` — "tell-you-later" registry. Founder-deferred items (DMCA email, attorney review, public launch, AI integration, etc.). `forge-lead` reads this at session start but does NOT proactively raise these items unless asked.
 - `AGENTS.md` — subagent orchestration overview (included above)
 
 Role-specific (each subagent loads its own):
