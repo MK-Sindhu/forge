@@ -160,6 +160,25 @@ DATABASE_URL="postgresql://..." npm run db:migrate
 - Sign-in / sign-up routes: `/sign-in` and `/sign-up` (catch-all segments: `src/app/sign-in/[[...sign-in]]`, `src/app/sign-up/[[...sign-up]]`)
 - Quirks documented in `frontend.md`
 
+## Scripts
+
+| npm script | File | What it does |
+|---|---|---|
+| `db:migrate` | `scripts/migrate.ts` | Applies pending SQL migrations to the database pointed at by `DATABASE_URL`. Override with `DATABASE_URL=... npm run db:migrate` to target prod. |
+| `db:smoke` | `scripts/smoke.ts` | Verifies all tables exist and returns row counts. Run after a migration to confirm the schema landed. |
+| `db:seed-worlds` | `scripts/seed-worlds.ts` | Bulk-uploads seed worlds from `scripts/seed-worlds/manifest.json`. Reads a local file manifest, presigns + PUTs each file to R2, then calls `POST /api/worlds` per entry. Sequential, idempotent (skips titles already in DB). See `scripts/seed-worlds/README.md` for setup + auth instructions. |
+
+All three scripts require `dotenv.config({ path: ".env.local" })` at the top — `.env` is not loaded by default (see `.env.local not .env` gotcha above).
+
+### Bulk seeding env vars
+
+| Variable | Required | Notes |
+|---|---|---|
+| `CLERK_SESSION_TOKEN` | Yes (seed-worlds only) | The `__session` JWT from browser DevTools. Short-lived — re-copy if the script runs longer than the token TTL (typically ~1 min). |
+| `SEED_API_BASE` | No | API base URL. Defaults to `http://localhost:3000`. Set to `https://forge-black-eta.vercel.app` to seed prod. |
+
+These are never committed to version control and are not needed in CI.
+
 ## Health Check Commands
 
 Run anytime to verify infra state:

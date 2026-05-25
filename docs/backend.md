@@ -198,6 +198,23 @@ Verified by walking `src/app/api/` (15 `route.ts` files as of Slice 6). `/api/fe
 | POST | `/api/notifications/mark-read` | required, active | Mark specific ids or all unread as read; scoped to own notifications only | 7.5 |
 | GET | `/api/notifications/unread-count` | required, active | Cheap unread badge count via partial index | 7.5 |
 
+## Bulk Seeding (Launch Ops Tool)
+
+`scripts/seed-worlds.ts` is a CLI tool for batch-uploading worlds before public launch. It reuses the existing API surface with no new routes:
+
+1. Calls `POST /api/uploads/sign` (with `kind`, `worldId`, `contentType`, `sizeBytes`, and `mediaId` for image/video) to get each presigned R2 PUT URL.
+2. PUTs each file body directly to R2 (same as the browser upload flow — bytes never touch the server).
+3. Calls `POST /api/worlds` with the resulting object keys, metadata, and `tosAccepted: true`.
+
+Auth: passes `Authorization: Bearer <session_token>` on every request. Clerk's `auth()` reads the token from the `Authorization` header (the header is parsed identically to the `__session` cookie JWT). The session token = the `__session` cookie value copied from browser DevTools.
+
+Key notes for this route:
+- `/api/uploads/sign` requires `worldId` (UUID v4) in the body — the script generates a single UUID per world and threads it through both the sign call and the worlds call so R2 key paths align.
+- `POST /api/worlds` enforces exactly one thumbnail in the `media` array — the script requires `thumbnailPath` in the manifest and throws if absent.
+- Rate limit on `/api/uploads/sign`: the route has a TODO for rate-limiting but no implementation yet. Sequential uploads at ~1/world avoids the concern for now; raise this before adding parallelism.
+
+See `scripts/seed-worlds/README.md` for setup + auth instructions.
+
 ## Phase 2 Prep (Scene Graph API)
 
 Phase 2 introduces a **scene graph API** as the canonical mutation surface for worlds. The browser editor, future desktop apps, future plugins, and AI agents are all clients of this API. Design notes:

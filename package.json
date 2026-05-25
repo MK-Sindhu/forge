@@ -12,6 +12,7 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:smoke": "tsx scripts/smoke.ts",
+    "db:seed-worlds": "tsx scripts/seed-worlds.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

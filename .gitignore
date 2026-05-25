@@ -40,3 +40,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Seed worlds — manifest contains local file paths; assets are large binaries
+scripts/seed-worlds/manifest.json
+scripts/seed-worlds/assets/

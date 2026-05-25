@@ -148,7 +148,7 @@ Schema additions + locked design decisions for Slice 7 are recorded in `PROJECT.
 | Real DMCA email (currently `dmca@forge.example` placeholder) | ⬜ |
 | Unsuspend button in admin UI | ✅ Shipped — Suspended tab + `UnsuspendButton` on `/admin/reports?view=suspended` |
 | Onboarding pass — empty-feed state for new users | ✅ Shipped — `WelcomeCallout` + actionable empty states |
-| 30–50 seed worlds — build / source CC-licensed `.glb` | ⬜ |
+| 30–50 seed worlds — build / source CC-licensed `.glb` | ⬜ Tool shipped (`scripts/seed-worlds.ts` + `npm run db:seed-worlds`). Founder: populate `scripts/seed-worlds/manifest.json` + run against prod. See `scripts/seed-worlds/README.md`. |
 | Basic analytics — Vercel Web Analytics (free on Hobby) | 🟡 Code wired (Vercel Web Analytics, free on Hobby); founder must toggle Analytics on in the Vercel dashboard to activate |
 | Launch plan: r/threejs + r/blenderhelp first, X/Bluesky parallel, HN last after 200+ users | 🟡 Draft copy shipped in `docs/launch-posts.md` (5 posts: r/threejs · r/WebGL · r/blender · X/Bluesky · Show HN) + before-posting checklist + after-launch dashboard. Founder posts when ready. |
 | First public launch (mark date when done) | ⬜ |
