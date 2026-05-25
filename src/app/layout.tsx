@@ -21,8 +21,31 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "FORGE",
-  description: "A feed-first social network for 3D world creators.",
+  metadataBase: new URL("https://forge-black-eta.vercel.app"),
+  title: {
+    default: "FORGE — a social feed of 3D worlds",
+    template: "%s · FORGE",
+  },
+  description:
+    "A feed-first social platform for 3D world creators. Upload your .glb, share with viewers, explore worlds together — in the browser.",
+  openGraph: {
+    type: "website",
+    siteName: "FORGE",
+    title: "FORGE — a social feed of 3D worlds",
+    description:
+      "A feed-first social platform for 3D world creators. Upload your .glb, share with viewers, explore worlds together — in the browser.",
+    url: "https://forge-black-eta.vercel.app",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "FORGE — a social feed of 3D worlds",
+    description:
+      "A feed-first social platform for 3D world creators. Upload your .glb, share with viewers, explore worlds together — in the browser.",
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 export default async function RootLayout({

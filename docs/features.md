@@ -32,6 +32,7 @@
 | 22 | Notifications | 7 | ✅ Verified |
 | 23 | Onboarding callout for fresh users | launch-ops | ✅ Shipped |
 | 24 | Analytics (Vercel Web Analytics) | launch-ops | 🟡 Code wired; needs Vercel dashboard toggle to activate |
+| 25 | Social previews (OG / Twitter Cards) | launch-polish | ✅ Shipped 2026-05-26 — shared world/profile/search URLs render preview cards on Twitter/X, Bluesky, Discord, Slack, LinkedIn, HN |
 
 ---
 
@@ -293,6 +294,26 @@ Tab routing: `?status=open|resolved|dismissed` for report-status views; `?view=s
 | Privacy | Vercel Web Analytics is cookieless; tracks pageviews + referrer + page-load performance metrics + country (derived from IP, then IP discarded). No personal data is retained. Privacy Policy §4 + §6 already describe this accurately. |
 
 **To activate:** see `docs/infra.md` "Analytics (Vercel Web Analytics)" section — one click in the Vercel dashboard (forge project → Analytics → Enable), then verify a pageview appears within ~30 seconds.
+
+## 25. Social Previews (OG / Twitter Cards)
+
+**Launch-polish** · When a world URL, profile URL, or search URL is shared on Twitter/X, Bluesky, Discord, Slack, LinkedIn, or HN, the link renders a rich preview card instead of a bare URL.
+
+| Layer | Where |
+|---|---|
+| Frontend | `src/app/layout.tsx` — site-wide `metadata` with `metadataBase`, `title.template`, OG `website` type, Twitter `summary_large_image` card defaults, `robots: { index: true, follow: true }`. `src/app/world/[id]/page.tsx` — `generateMetadata` produces per-world OG `article` + Twitter Card with world title, description (≤200 chars), thumbnail image (1200×1200), and author username. `src/app/profile/[username]/page.tsx` — `generateMetadata` produces OG `profile` + Twitter `summary` card with username, world count, and avatar image. `src/app/search/page.tsx` — `generateMetadata` produces dynamic title/description for `?q=` / `?tag=` / both params. `/upload` + all `/legal/*` pages — static `metadata` for clean browser tabs (template applied, no double-suffix). |
+| Backend | No backend changes. |
+| DB | Per-world `generateMetadata` runs a lean Drizzle relational query: `db.query.worlds.findFirst({ columns: { id, title, description }, with: { user: { columns: { username } }, media: { where: type='thumbnail', limit: 1, columns: { url } } } })`. 3 columns only — does not re-call the world API route. |
+
+**Why direct DB in `generateMetadata` instead of re-fetching the API route:** Next.js does not dedupe a `fetch()` across the `generateMetadata` phase and the page-render phase. The direct DB query is cheaper (3 columns vs. full response) and requires no `headers()` reconstruction. The page body itself still fetches via the API route unchanged.
+
+**`metadataBase` is critical:** without it, relative image URLs (R2 public URLs stored as relative paths, or Next.js internal paths) do not resolve correctly in OG `<meta>` tags when scrapers request them.
+
+**Title template:** the root layout `title.template: "%s · FORGE"` appends `· FORGE` to every per-page title automatically. Per-page titles should NOT include `— FORGE` or `· FORGE` manually or they will double-suffix. The legal pages were updated to strip the manual suffix when this feature shipped.
+
+**Auth-gated pages** (`/notifications`, `/admin/*`) have no OG metadata intentionally — they are never publicly shareable.
+
+**Verification:** paste any world URL into https://www.opengraph.xyz/ — should show the world title, description, and thumbnail image in the preview card.
 
 ## Parking Lot Features (Future Phases)
 

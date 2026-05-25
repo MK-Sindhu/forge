@@ -1,7 +1,8 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 
-export const metadata = {
-  title: "Terms of Service — FORGE",
+export const metadata: Metadata = {
+  title: "Terms of Service",
   description: "FORGE Terms of Service — the rules governing use of the platform.",
 };
 

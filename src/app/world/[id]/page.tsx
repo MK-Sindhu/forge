@@ -1,10 +1,11 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import Image from "next/image";
 import { auth } from "@clerk/nextjs/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { users } from "@/db/schema";
+import { users, worlds } from "@/db/schema";
 import { WorldViewerClient } from "./WorldViewerClient";
 import MediaCarousel from "@/components/media-carousel/MediaCarousel";
 import { LikeButton } from "@/components/like-button/LikeButton";
@@ -15,6 +16,68 @@ import CommentsSection from "@/components/comments-section/CommentsSection";
 import UpdatesTimeline from "@/components/updates-timeline/UpdatesTimeline";
 import { TagChip } from "@/components/tag-chip/TagChip";
 import { ViewTracker } from "@/components/view-tracker/ViewTracker";
+
+// ---------------------------------------------------------------------------
+// generateMetadata — per-world OG + Twitter Card tags
+// Direct DB query (3 joins, ~5 columns) rather than re-calling the API route,
+// which would require reconstructing the absolute URL and adds an extra HTTP
+// round-trip. The page render itself still uses the API route (no change to
+// that path). Next.js does NOT dedupe a fetch() in generateMetadata with an
+// identical fetch() in the page component when they execute in separate phases,
+// so the direct DB approach is both cheaper and simpler here.
+// ---------------------------------------------------------------------------
+export async function generateMetadata(
+  { params }: { params: Promise<{ id: string }> }
+): Promise<Metadata> {
+  const { id } = await params;
+
+  // Minimal query — only the columns OG tags need.
+  const worldRow = await db.query.worlds.findFirst({
+    where: eq(worlds.id, id),
+    columns: { id: true, title: true, description: true },
+    with: {
+      user: { columns: { username: true } },
+      media: {
+        where: (m, { eq: meq }) => meq(m.type, "thumbnail"),
+        limit: 1,
+        columns: { url: true },
+      },
+    },
+  });
+
+  if (!worldRow) {
+    return { title: "World not found" };
+  }
+
+  const thumbnail = worldRow.media[0]?.url ?? null;
+  const url = `/world/${worldRow.id}`;
+  const description = (
+    worldRow.description ??
+    `A 3D world on FORGE by @${worldRow.user.username}.`
+  ).slice(0, 200);
+
+  return {
+    title: worldRow.title,
+    description,
+    openGraph: {
+      type: "article",
+      title: worldRow.title,
+      description,
+      url,
+      images: thumbnail
+        ? [{ url: thumbnail, width: 1200, height: 1200, alt: worldRow.title }]
+        : [],
+      authors: [`@${worldRow.user.username}`],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: worldRow.title,
+      description,
+      images: thumbnail ? [thumbnail] : [],
+      creator: `@${worldRow.user.username}`,
+    },
+  };
+}
 
 export default async function WorldPage(
   { params }: { params: Promise<{ id: string }> }

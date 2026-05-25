@@ -1,6 +1,12 @@
+import type { Metadata } from "next";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { UploadForm } from "./UploadForm";
+
+export const metadata: Metadata = {
+  title: "Upload a world",
+  description: "Upload your .glb file and publish a new 3D world to FORGE.",
+};
 
 export default async function UploadPage() {
   const { userId } = await auth();

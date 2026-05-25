@@ -1,7 +1,8 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 
-export const metadata = {
-  title: "Privacy Policy — FORGE",
+export const metadata: Metadata = {
+  title: "Privacy Policy",
   description: "FORGE Privacy Policy — how we collect, use, and protect your data.",
 };
 

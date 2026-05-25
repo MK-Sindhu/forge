@@ -1,5 +1,7 @@
-export const metadata = {
-  title: "DMCA Policy — FORGE",
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "DMCA Policy",
   description: "How to report copyright infringement on FORGE.",
 };
 

@@ -76,10 +76,10 @@ src/
 | Route | File | Server/Client | Purpose | Slice |
 |---|---|---|---|---|
 | `/` | `src/app/page.tsx` | Server | Feed (3 tabs via `?tab=`: Recent, Trending, Following). Cards show up to 3 tag chips + `+N more` overflow. Trending and Recent are public (no auth gate); Following redirects to sign-in if unauthenticated. **Onboarding:** `<WelcomeCallout />` renders above the tab bar for "fresh" signed-in users (no uploads + no follows). The `isFreshUser` flag is computed via two cheap 1-row DB probes (worlds + follows) immediately after the `currentDbUserId` lookup. Callout disappears automatically once user uploads or follows. `ContextualEmptyState` is now actionable: Following tab has "Browse Trending" + "Search worlds" buttons; Recent tab has "Upload your first world" button (signed-in only). | 1, 3, 4, 5, 7.1, 7.4, launch-ops |
-| `/search` | `src/app/search/page.tsx` | Server (public) | Full-text search results. Reads `?q=` and/or `?tag=`. Three branches: empty state (neither), FTS query (`q` only), tag filter (`tag` only), intersection (both). Direct DB query — no API route. Cap 50 results. `search_vector` is Postgres-managed (trigger-populated, not in Drizzle schema). | 7.2 |
-| `/world/[id]` | `src/app/world/[id]/page.tsx` | Server | World viewer page (3D + metadata + carousel + updates + comments + actions). Tag chips row below title. | 1, 2, 3, 4, 5, 7.1 |
-| `/profile/[username]` | `src/app/profile/[username]/page.tsx` | Server | Profile (avatar, follower/following counts, world grid). Cards show up to 3 tag chips + `+N more` overflow. | 1, 3, 7.1 |
-| `/upload` | `src/app/upload/page.tsx` + `UploadForm.tsx` | Client (`UploadForm`) | Multi-step upload form | 1, 2 |
+| `/search` | `src/app/search/page.tsx` | Server (public) | Full-text search results. Reads `?q=` and/or `?tag=`. Three branches: empty state (neither), FTS query (`q` only), tag filter (`tag` only), intersection (both). Direct DB query — no API route. Cap 50 results. `search_vector` is Postgres-managed (trigger-populated, not in Drizzle schema). `generateMetadata` produces dynamic title/description for shareable search URLs (e.g. `#mytag · FORGE`, `Search: "robots" · FORGE`). | 7.2, launch-polish |
+| `/world/[id]` | `src/app/world/[id]/page.tsx` | Server | World viewer page (3D + metadata + carousel + updates + comments + actions). Tag chips row below title. `generateMetadata` produces per-world OG + Twitter Card tags (title, description, thumbnail image, author). Direct DB query for metadata fetch (lean 3-column query — does not re-call the API route). | 1, 2, 3, 4, 5, 7.1, launch-polish |
+| `/profile/[username]` | `src/app/profile/[username]/page.tsx` | Server | Profile (avatar, follower/following counts, world grid). Cards show up to 3 tag chips + `+N more` overflow. `generateMetadata` produces per-profile OG + Twitter Card tags (username, world count, avatar image). | 1, 3, 7.1, launch-polish |
+| `/upload` | `src/app/upload/page.tsx` + `UploadForm.tsx` | Client (`UploadForm`) | Multi-step upload form. Static `metadata` for browser tab clarity (`Upload a world · FORGE`). | 1, 2, launch-polish |
 | `/sign-in/[[...sign-in]]` | `src/app/sign-in/[[...sign-in]]/page.tsx` | Server (Clerk drop-in) | Clerk sign-in | 0 |
 | `/sign-up/[[...sign-up]]` | `src/app/sign-up/[[...sign-up]]/page.tsx` | Server (Clerk drop-in) | Clerk sign-up | 0 |
 | `/admin/reports` | `src/app/admin/reports/page.tsx` | Server (admin gate) | Moderation queue. Four tabs: Open (`?status=open` or default) / Resolved (`?status=resolved`) / Dismissed (`?status=dismissed`) / Suspended (`?view=suspended`). The Suspended view queries `users WHERE suspended_at IS NOT NULL ORDER BY suspended_at DESC` and renders avatar + username + "Suspended {relative time}" + `UnsuspendButton` per row. Status tabs use `?status=...`; the Suspended tab uses a separate `?view=suspended` param to distinguish the shape difference. | 6, launch-ops |
@@ -87,6 +87,15 @@ src/
 | `/legal/terms` | `src/app/legal/terms/page.tsx` | Static (server component) | Draft Terms of Service — 11 numbered sections covering acceptance, eligibility, account rules, creator ownership + license grant, content standards, reporting, DMCA cross-link, termination, no-crypto policy, disclaimers, and changes. Includes amber DRAFT banner. Links to Privacy Policy in Contact section. Pending attorney review + final copy before public launch. | launch-ops |
 | `/legal/privacy` | `src/app/legal/privacy/page.tsx` | Static (server component) | Draft Privacy Policy — 10 numbered sections covering: what is collected (account info via Clerk, device/IP data via Vercel, behavioral data for signed-in users only), how data is used, third-party providers (Clerk, Vercel, Neon, Cloudflare R2; analytics placeholder), public content, cookies (Clerk session only — no tracking cookies), data retention + deletion, user rights (GDPR-style), children's privacy (under-13 prohibition), policy changes. Includes amber DRAFT banner. All contact emails are `privacy@forge.example` placeholder. Analytics section explicitly notes "none today" and promises update when added. Cross-links to Terms. Pending attorney review + final copy before public launch. | launch-ops |
 | `/notifications` | `src/app/notifications/page.tsx` | Server (auth-gated) | Notification feed. First page fetched via direct DB query. Cursor pagination via `NotificationList` client component. `MarkAllReadOnView` fires mark-read POST after 1.5s. Redirects to `/sign-in?redirect_url=/notifications` when signed out. | 7.5 |
+
+### Root layout metadata (`src/app/layout.tsx`)
+
+The root layout exports `metadata: Metadata` with site-wide OG defaults:
+
+- `metadataBase: new URL("https://forge-black-eta.vercel.app")` — required for relative image URLs in per-page `generateMetadata` to resolve correctly in OG tags.
+- `title.template: "%s · FORGE"` — every per-page title (from `generateMetadata` or per-page `export const metadata`) gets `· FORGE` appended automatically. The `title.default` is used for pages that don't export a title.
+- `openGraph` and `twitter` blocks set site-wide defaults. Per-page `generateMetadata` overrides specific fields; anything not overridden falls back to the root values.
+- `robots: { index: true, follow: true }` — allows public crawling.
 
 ## Clerk v7 Quirks (Critical)
 
@@ -185,6 +194,39 @@ The `WelcomeCallout` uses no cookie, no localStorage, no dismissal state. Instea
 2. `SELECT followee_id FROM follows WHERE follower_id = $1 LIMIT 1` — does the user follow anyone?
 
 `isFreshUser = !uploadedRow && !followsRow`. The callout mounts only when both are false and disappears permanently the moment either condition changes — no explicit dismiss action needed. This pattern is appropriate for low-cost one-time checks where the natural user action (uploading or following) already solves the condition the callout targets.
+
+### Social card metadata (OG / Twitter Cards)
+
+Pattern used by `/world/[id]`, `/profile/[username]`, `/search`.
+
+**How it works:**
+
+1. `src/app/layout.tsx` exports `metadata: Metadata` with site-wide defaults including `metadataBase`, `title.template`, `openGraph`, `twitter`, and `robots`.
+2. Each public page that benefits from social preview exports `async function generateMetadata({ params, searchParams }): Promise<Metadata>`. Next.js merges the returned object with the root defaults — per-page fields win.
+3. The `title.template: "%s · FORGE"` in the root layout means any page returning `{ title: "My World" }` gets rendered as `"My World · FORGE"` in `<title>` and OG tags automatically.
+4. `metadataBase` is mandatory — without it, relative URLs in `openGraph.images` would not resolve correctly when scrapers fetch them.
+
+**Fetch strategy for per-world metadata:**
+
+`generateMetadata` on `/world/[id]/page.tsx` uses a lean direct DB query (`db.query.worlds.findFirst`) rather than re-calling `GET /api/worlds/[id]`. Reasons:
+
+- The page render already uses `fetch(${baseUrl}/api/worlds/${id})` for historical reasons (no refactor needed for the page body).
+- `generateMetadata` and the page render execute in separate phases; Next.js does NOT dedupe a `fetch()` across them unless both calls happen in the same phase with identical arguments.
+- The direct DB approach pulls only 3 columns (title, description, thumbnail URL, author username) — cheaper than the full API response.
+- Does not require `headers()` to reconstruct the absolute URL.
+
+**Pages with OG metadata:**
+
+| Page | Type | Tags produced |
+|---|---|---|
+| `layout.tsx` (site-wide) | Static `metadata` | OG website + Twitter summary_large_image defaults |
+| `/world/[id]` | `generateMetadata` | OG article + thumbnail image + author; Twitter summary_large_image |
+| `/profile/[username]` | `generateMetadata` | OG profile + avatar image; Twitter summary |
+| `/search` | `generateMetadata` | Dynamic title/description for `?q=` and `?tag=` params; Twitter summary |
+| `/upload` | Static `metadata` | Title only (`Upload a world · FORGE`) |
+| `/legal/dmca`, `/legal/terms`, `/legal/privacy` | Static `metadata` | Title only (clean browser tab, template applied) |
+
+**Auth-gated pages** (`/notifications`, `/admin/*`) intentionally have no OG metadata — they are never publicly shareable.
 
 ### Error boundaries
 

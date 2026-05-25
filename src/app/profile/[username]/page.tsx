@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -8,6 +9,51 @@ import { users, follows } from "@/db/schema";
 import { WorldCardMedia } from "@/components/world-card-media/WorldCardMedia";
 import { FollowButton } from "@/components/follow-button/FollowButton";
 import { TagChip } from "@/components/tag-chip/TagChip";
+
+// ---------------------------------------------------------------------------
+// generateMetadata — per-profile OG + Twitter Card tags
+// ---------------------------------------------------------------------------
+export async function generateMetadata(
+  { params }: { params: Promise<{ username: string }> }
+): Promise<Metadata> {
+  const { username } = await params;
+
+  // Lean query — only the columns OG tags need.
+  const user = await db.query.users.findFirst({
+    where: eq(users.username, username),
+    columns: { username: true, avatarUrl: true },
+    with: {
+      worlds: { columns: { id: true } },
+    },
+  });
+
+  if (!user) {
+    return { title: "Profile not found" };
+  }
+
+  const worldCount = user.worlds.length;
+  const description = `@${user.username} — ${worldCount} ${worldCount === 1 ? "world" : "worlds"} on FORGE.`;
+
+  return {
+    title: `@${user.username}`,
+    description,
+    openGraph: {
+      type: "profile",
+      title: `@${user.username}`,
+      description,
+      url: `/profile/${user.username}`,
+      images: user.avatarUrl
+        ? [{ url: user.avatarUrl, alt: user.username }]
+        : [],
+    },
+    twitter: {
+      card: "summary",
+      title: `@${user.username}`,
+      description,
+      images: user.avatarUrl ? [user.avatarUrl] : [],
+    },
+  };
+}
 
 export default async function ProfilePage({
   params,

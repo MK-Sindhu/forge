@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
 import { and, desc, eq, inArray } from "drizzle-orm";
@@ -20,6 +21,45 @@ type SearchWorld = {
   media: { type: string; url: string }[];
   tags: { name: string }[];
 };
+
+// ---------------------------------------------------------------------------
+// generateMetadata — dynamic title/description for shareable search URLs
+// ---------------------------------------------------------------------------
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}): Promise<Metadata> {
+  const sp = await searchParams;
+  const rawQ = Array.isArray(sp.q) ? sp.q[0] : sp.q;
+  const q = rawQ?.trim() ?? "";
+  const rawTag = Array.isArray(sp.tag) ? sp.tag[0] : sp.tag;
+  const tag = rawTag?.trim().toLowerCase() ?? "";
+
+  const hasQ = q.length > 0;
+  const hasTag = tag.length > 0;
+
+  let title = "Search worlds";
+  let description = "Search 3D worlds on FORGE by title, description, or tag.";
+
+  if (hasQ && hasTag) {
+    title = `Results for "${q}" in #${tag}`;
+    description = `FORGE worlds matching "${q}" tagged #${tag}.`;
+  } else if (hasQ) {
+    title = `Search: "${q}"`;
+    description = `FORGE worlds matching "${q}".`;
+  } else if (hasTag) {
+    title = `#${tag}`;
+    description = `FORGE worlds tagged #${tag}.`;
+  }
+
+  return {
+    title,
+    description,
+    openGraph: { title, description },
+    twitter: { card: "summary", title, description },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Page (server component — no 'use client')

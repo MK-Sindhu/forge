@@ -151,6 +151,7 @@ Schema additions + locked design decisions for Slice 7 are recorded in `PROJECT.
 | 30–50 seed worlds — build / source CC-licensed `.glb` | ✅ **30 worlds live in prod 2026-05-26** — 10 Khronos glTF samples (MIT) + 20 Quaternius Space Kit & Nature Pack models (CC0). Curated from 138 downloaded source models. Uploaded via the direct-mode escape hatch script (`db:seed-worlds-direct`) after the Vercel-API path was blocked by an ISP→Vercel routing issue + Clerk session-token quirks. Thumbnails auto-generated headless via Playwright + three.js (`db:seed-thumbs`). |
 | Basic analytics — Vercel Web Analytics (free on Hobby) | 🟡 Code wired (Vercel Web Analytics, free on Hobby); founder must toggle Analytics on in the Vercel dashboard to activate |
 | Launch plan: r/threejs + r/blenderhelp first, X/Bluesky parallel, HN last after 200+ users | 🟡 Draft copy shipped in `docs/launch-posts.md` (5 posts: r/threejs · r/WebGL · r/blender · X/Bluesky · Show HN) + before-posting checklist + after-launch dashboard. Founder posts when ready. |
+| OpenGraph + Twitter Card metadata | ✅ Shipped 2026-05-26 — site-wide defaults in `layout.tsx` (`metadataBase`, `title.template`, OG website + Twitter card); `generateMetadata` on `/world/[id]` (world thumbnail as OG image), `/profile/[username]` (avatar, world count), `/search` (dynamic title per `?q=`/`?tag=`). Static `metadata` on `/upload` + all `/legal/*` pages (clean browser tabs, template applied, no double-suffix). |
 | First public launch (mark date when done) | ⬜ |
 
 ## 4. Known Issues / Follow-ups (Open)
