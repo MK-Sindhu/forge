@@ -41,6 +41,18 @@ if (!SESSION) {
   process.exit(1);
 }
 
+// Sanity check: __session is a JWT, so it must start with eyJ
+if (!SESSION.startsWith("eyJ")) {
+  console.error(
+    `Error: CLERK_SESSION_TOKEN doesn't look like a JWT.\n` +
+    `  Got: "${SESSION.slice(0, 20)}..."\n` +
+    `  Expected something starting with "eyJ".\n` +
+    `  You probably copied the wrong cookie. Look for the row named "__session"\n` +
+    `  in DevTools → Application → Cookies → https://forge-black-eta.vercel.app.`
+  );
+  process.exit(1);
+}
+
 // ---------------------------------------------------------------------------
 // Size limits — must match KIND_RULES in /api/uploads/sign/route.ts
 // ---------------------------------------------------------------------------
@@ -181,7 +193,10 @@ async function uploadFile(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${SESSION}`,
+      // Auth: send as a Cookie (matches what the browser sends).
+      // Clerk's __session JWT validates as a cookie but not reliably as a
+      // bearer in Next.js v7 — different audience claim. Cookie form works.
+      Cookie: `__session=${SESSION}`,
     },
     body: JSON.stringify(signBody),
   });
@@ -305,7 +320,10 @@ async function uploadWorld(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${SESSION}`,
+      // Auth: send as a Cookie (matches what the browser sends).
+      // Clerk's __session JWT validates as a cookie but not reliably as a
+      // bearer in Next.js v7 — different audience claim. Cookie form works.
+      Cookie: `__session=${SESSION}`,
     },
     body: JSON.stringify(worldPayload),
   });
