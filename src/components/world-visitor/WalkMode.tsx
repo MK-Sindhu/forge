@@ -26,6 +26,7 @@ import { PointerLockControls } from "@react-three/drei";
 import { useThree, useFrame } from "@react-three/fiber";
 import { Raycaster } from "three";
 import type { PointerLockControls as PointerLockControlsImpl } from "three-stdlib";
+import { useUpdateMyPresence } from "@liveblocks/react";
 import { computeMovement, type MovementInput } from "./movement";
 import { applyCollision } from "./collision";
 import type { SceneGraphV1 } from "@/lib/scene-graph/schema";
@@ -72,6 +73,24 @@ export function WalkMode({
   const runningRef = useRef(false);
   const raycasterRef = useRef(new Raycaster());
   const controlsRef = useRef<PointerLockControlsImpl>(null);
+
+  // Liveblocks presence — push our own position to the room ~10x/sec.
+  const updateMyPresence = useUpdateMyPresence();
+  // Timestamp of the last presence push. Used to throttle to ~100ms intervals.
+  const lastPushedAtRef = useRef(0);
+
+  // ---------------------------------------------------------------------------
+  // Liveblocks: announce walk-mode entry/exit.
+  // On mount: set inWalkMode: true so other users see us enter.
+  // On unmount (ESC / Exit): set inWalkMode: false and clear position so our
+  // avatar disappears from the PresenceLayer of other visitors.
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    updateMyPresence({ inWalkMode: true });
+    return () => updateMyPresence({ inWalkMode: false, position: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ---------------------------------------------------------------------------
   // On mount: place camera at spawn + eye height; apply spawn rotation for yaw.
@@ -263,6 +282,22 @@ export function WalkMode({
     });
 
     camera.position.copy(safe);
+
+    // Throttle presence push to ~100ms (10 Hz).
+    // Liveblocks coalesces calls at its own ~100ms default throttle, so this
+    // client-side guard is primarily a CPU saving (avoids JSON-serializing
+    // presence at 60 Hz). We only push after movement is confirmed (inside
+    // the `positionDelta.lengthSq() !== 0` branch) to avoid spamming when idle.
+    const now = performance.now();
+    if (now - lastPushedAtRef.current >= 100) {
+      lastPushedAtRef.current = now;
+      updateMyPresence({
+        position: [camera.position.x, camera.position.y, camera.position.z],
+        yaw: camera.rotation.y,
+        pitch: camera.rotation.x,
+        inWalkMode: true,
+      });
+    }
   });
 
   // Desktop: PointerLockControls handles mouse-look automatically.

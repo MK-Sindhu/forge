@@ -28,6 +28,8 @@ import { EnterWorldOverlay } from "./EnterWorldOverlay";
 import { MobileJoysticks } from "./MobileJoysticks";
 import { ControlsHint } from "./ControlsHint";
 import { useTouchDevice } from "./use-touch-device";
+import { PresenceLayer } from "./PresenceLayer";
+import { ChatPanel } from "./ChatPanel";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -264,6 +266,14 @@ export default function WorldVisitor({
               sceneGraph={sceneGraph}
               assetsById={assetsById}
             />
+            {/*
+             * PresenceLayer: renders capsule avatars for all other visitors who
+             * are currently in walk mode. Always mounted (preview AND walk mode)
+             * so you can see other people moving around before you enter yourself.
+             * PresenceLayer is pure R3F groups/meshes — no camera or controls
+             * logic — so it's safe inside the same Suspense as the scene.
+             */}
+            <PresenceLayer />
           </Suspense>
 
           {mode === "preview" ? (
@@ -311,6 +321,15 @@ export default function WorldVisitor({
         {mode === "walking" && (
           <ControlsHint isTouchDevice={isTouchDevice} />
         )}
+
+        {/*
+         * Chat overlay — pure DOM, outside the Canvas so pointer events work.
+         * Only visible in walking mode. Broadcasts + receives ephemeral
+         * messages via Liveblocks. T key focuses the input; ESC blurs it.
+         * The ChatPanel keyboard handler for T is defined inside ChatPanel
+         * itself (not in WalkMode) to avoid editor/visitor key conflicts.
+         */}
+        {mode === "walking" && <ChatPanel />}
       </div>
     </WorldViewerErrorBoundary>
   );

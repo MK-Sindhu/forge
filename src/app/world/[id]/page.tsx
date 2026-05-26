@@ -21,6 +21,7 @@ import { ViewTracker } from "@/components/view-tracker/ViewTracker";
 import { ConvertToSceneGraphButton } from "@/components/convert-to-scene-graph/ConvertToSceneGraphButton";
 import { VersionHistorySection } from "@/components/version-history/VersionHistorySection";
 import { CollaboratorsSection } from "@/components/collaborators/CollaboratorsSection";
+import { LiveblocksRoomProvider } from "@/components/liveblocks/LiveblocksRoomProvider";
 
 // ---------------------------------------------------------------------------
 // generateMetadata — per-world OG + Twitter Card tags
@@ -174,15 +175,19 @@ export default async function WorldPage(
       )}
 
       {/* 3D viewer — fills a fixed-aspect container.
-          Branches on sceneGraph: scene-graph worlds use WorldVisitorClient (walk mode);
-          legacy single-GLB worlds (sceneGraph === null) use WorldViewerClient. */}
+          Branches on sceneGraph: scene-graph worlds use WorldVisitorClient (walk mode)
+          wrapped in LiveblocksRoomProvider so all descendants get presence + chat hooks.
+          Legacy single-GLB worlds (sceneGraph === null) use WorldViewerClient — no
+          Liveblocks (legacy worlds don't support walk mode, so presence is irrelevant). */}
       <div className="aspect-video w-full overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-800">
         {(world.sceneGraph as SceneGraphV1 | null) ? (
-          <WorldVisitorClient
-            sceneGraph={world.sceneGraph as SceneGraphV1}
-            assets={world.assets as Array<{ id: string; name: string; glbUrl: string; sizeBytes: number }>}
-            ariaLabel={`3D world: ${world.title}`}
-          />
+          <LiveblocksRoomProvider worldId={world.id}>
+            <WorldVisitorClient
+              sceneGraph={world.sceneGraph as SceneGraphV1}
+              assets={world.assets as Array<{ id: string; name: string; glbUrl: string; sizeBytes: number }>}
+              ariaLabel={`3D world: ${world.title}`}
+            />
+          </LiveblocksRoomProvider>
         ) : (
           <WorldViewerClient glbUrl={world.glbUrl} ariaLabel={`3D world: ${world.title}`} />
         )}

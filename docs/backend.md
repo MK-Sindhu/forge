@@ -38,7 +38,9 @@ src/
 │   ├── admin/            # Admin-only: reports queue, suspensions
 │   ├── comments/         # DELETE single comment
 │   ├── updates/          # PATCH / DELETE single update
-│   └── notifications/    # GET list, POST mark-read, GET unread-count (Slice 7.5)
+│   ├── notifications/    # GET list, POST mark-read, GET unread-count (Slice 7.5)
+│   └── liveblocks/
+│       └── auth/         # POST — issue Liveblocks JWT for signed-in or guest visitor (Slice 9.3)
 ├── db/
 │   └── schema.ts         # Drizzle schema — single source of truth for tables
 └── lib/
@@ -46,6 +48,11 @@ src/
     ├── r2.ts             # R2 client (lazy-init), presigned URLs, key builders, deleteObject
     ├── world-permissions.ts  # requireWorldRole helper (Phase 2 + Slice 9.2 collaborator lookup)
     ├── notifications.ts      # notify() / notifyMany() best-effort helpers; NotifyInput type
+    ├── visitor-color.ts      # visitorColor(id) — deterministic HSL color string for a visitor id (Slice 9.3)
+    ├── guest-id.ts           # generateGuestId / guestName / getOrCreateGuestId — client-side guest identity (Slice 9.3)
+    ├── liveblocks/
+    │   ├── types.ts      # Shared Liveblocks types: VisitorPresence, VisitorUserInfo, RoomEvent, worldRoomId() (Slice 9.3)
+    │   └── server.ts     # Server-only Liveblocks client (lazy-init, getLiveblocksClient); imports "server-only" (Slice 9.3)
     ├── scene-graph/
     │   ├── schema.ts     # SceneGraphV1 Zod schema, parseSceneGraph, emptySceneGraph
     │   └── operations.ts # Op types, applyOps reducer, OpsBatchSchema (Phase 2)
@@ -335,6 +342,7 @@ Verified by walking `src/app/api/` (15 `route.ts` files as of Slice 6). `/api/fe
 | GET | `/api/worlds/[id]/collaborators` | public | Returns `{ owner: { id, username, avatarUrl }, collaborators: [{ id, username, avatarUrl, role, addedAt, addedBy: { id, username } \| null }] }`. `collaborators` capped at 50. 404 if world missing. | 9.2 |
 | POST | `/api/worlds/[id]/collaborators` | required, owner | Invite a user (by `username`) as an editor collaborator. Body: `{ username: string(1..80) }`. Runs in a transaction: looks up target user by username (404 if not found), checks owner conflict (409), checks already-a-collaborator (409 — includes the existing row in response), inserts `world_collaborators` row. Post-commit best-effort `notify({ type: "collaborator_added" })` to the invited user. Returns 201 `{ id, username, avatarUrl, role, addedAt, addedBy: { id, username } }`. | 9.2 |
 | DELETE | `/api/worlds/[id]/collaborators/[userId]` | required, owner OR self-collaborator | Remove a collaborator. Owner may remove anyone; a collaborator may self-remove. Fetches the world (404 if missing), checks caller is owner or self (403 otherwise), deletes the `world_collaborators` row (404 if not a collaborator). Returns `{ removed: true, worldId, userId }`. No notification on removal. | 9.2 |
+| POST | `/api/liveblocks/auth` | public (signed-in OR anonymous guest) | Issues a short-lived Liveblocks JWT authorizing a visitor to join a world's Liveblocks room. Body: `{ room: uuid, guestId?: string (4 uppercase alphanumeric) }`. Validates `room` against `worlds` table (404 if missing). Signed-in path: looks up DB user by `clerkId` (503 if missing), rejects suspended users (403). Guest path: requires `guestId` (400 if absent). Response: raw Liveblocks JWT body forwarded verbatim with `Content-Type: application/json`. Errors: 400 (bad body / guest missing guestId), 403 (suspended), 404 (world not found), 503 (DB or Liveblocks error). | 9.3 |
 
 ## CLI Scripts
 
@@ -747,6 +755,69 @@ All object-key construction is server-side in `r2.ts`. Never let clients choose 
 | `buildAssetKey` | `(userId, assetId) → string` | `assets/{userId}/{assetId}/asset.glb` — Phase 2 world assets (added 8.2) |
 | `deleteObject` | `({ bucket, objectKey }) → Promise<void>` | Best-effort R2 delete; swallows 404/NoSuchKey; rethrows other errors. Used when a `world_asset` DB row is removed (added 8.2). |
 
+## Liveblocks Core Library (Slice 9.3)
+
+Slice 9.3 adds multi-user presence + in-world chat via Liveblocks. Three packages installed as runtime dependencies:
+
+```
+@liveblocks/client  3.19.3   vanilla JS client — Room connections
+@liveblocks/react   3.19.3   React hooks (useMyPresence, useOthers, useBroadcastEvent, useEventListener)
+@liveblocks/node    3.19.3   server-only Liveblocks class for issuing JWT tokens
+```
+
+### `src/lib/liveblocks/types.ts`
+
+Shared types consumed by BOTH client components AND the server auth route. No Liveblocks dep — pure TypeScript interfaces.
+
+| Export | What it is |
+|---|---|
+| `VisitorPresence` | Per-user presence published while in walk mode; includes `position: [x,y,z] \| null`, `yaw`, `pitch`, `inWalkMode`. `null` position = user hasn't entered walk mode yet. Updated ~10x/sec. |
+| `VisitorUserInfo` | Stable user metadata attached at JWT issue time: `name` (`@username` or `Guest_XXXX`), `avatarUrl`, `color` (HSL string), `isGuest`. |
+| `RoomEvent` | Discriminated union of broadcast events. v1 has one variant: `{ type: "chat"; text: string }`. 280-char cap enforced client-side. |
+| `worldRoomId(worldId)` | Returns the canonical Liveblocks room ID `"world:{worldId}"`. Use this in both `session.allow()` (server) and `<RoomProvider id={...}>` (client) — never build the string inline. |
+
+### `src/lib/liveblocks/server.ts`
+
+Server-only module. Starts with `import "server-only"` — bundler hard-fails if a client component accidentally imports this file.
+
+```ts
+getLiveblocksClient(): Liveblocks
+```
+
+Lazy singleton. Reads `process.env.LIVEBLOCKS_SECRET_KEY` on first call (not at module load). Throws `Error("LIVEBLOCKS_SECRET_KEY env var is required")` if the env var is absent. Same lazy-init pattern as `r2.ts`.
+
+**Usage in the auth route (Chunk 2):**
+```ts
+import { getLiveblocksClient } from "@/lib/liveblocks/server";
+const liveblocks = getLiveblocksClient();
+const session = liveblocks.prepareSession(userId, { userInfo });
+session.allow(worldRoomId(worldId), session.FULL_ACCESS);
+const { body, status } = await session.authorize();
+```
+
+### `src/lib/visitor-color.ts`
+
+Pure utility (no Liveblocks dep). Deterministic HSL color for a string id.
+
+```ts
+visitorColor(id: string): string
+// Returns e.g. "hsl(214, 70%, 55%)"
+```
+
+Uses a djb2-style hash → `Math.abs(hash) % 360` for hue. Saturation 70% + lightness 55% chosen for readability on dark backgrounds (editor + walk mode are both dark). Called server-side at JWT issue time to embed a stable color into `VisitorUserInfo.color`.
+
+### `src/lib/guest-id.ts`
+
+Client-only module (uses `sessionStorage` — do not call from server components or route handlers).
+
+| Export | What it does |
+|---|---|
+| `generateGuestId()` | Returns a random 4-char uppercase alphanumeric string (`A-Z0-9`). ~1.68M combinations. |
+| `guestName(guestId)` | Returns `"Guest_<guestId>"` — the display name shown to other visitors. |
+| `getOrCreateGuestId()` | Reads/writes `sessionStorage` key `"forge_guest_id"`. Stable per browser tab (cleared on close). Falls back to a fresh non-persistent id if `sessionStorage` is unavailable (private browsing). |
+
+Guest ids are created in the client component that calls `POST /api/liveblocks/auth` (Chunk 2) before the room connection is established.
+
 ## Known Gotchas
 
 - **`auth()` and `currentUser()` are async in Clerk v7.** Always `await`.
@@ -756,3 +827,5 @@ All object-key construction is server-side in `r2.ts`. Never let clients choose 
 - **Recount counters, don't increment.** Prevents drift.
 - **`requireActiveDbUser` on every new write endpoint** by default. Exempt only with explicit justification (the reports endpoint is the canonical example).
 - **Tag characters:** only `[a-z0-9_-]` allowed. Reject anything outside this set (spaces, emoji, `#`) with 400 at the route level. The DB CHECK constraint enforces lowercase + length as a safety net.
+- **`src/lib/liveblocks/server.ts` is server-only.** The `import "server-only"` guard prevents accidental client-side inclusion. If you add Liveblocks token issuance to a new route, import `getLiveblocksClient` from this file, never from `@liveblocks/node` directly (keeps the lazy-init pattern consistent).
+- **`LIVEBLOCKS_SECRET_KEY` must be set in `.env.local` and Vercel.** The lazy-init throws at call time (not import time), so the build passes in CI without a real key.

@@ -2,7 +2,7 @@
 
 > The "what is done, what is left, what is in-flight" doc. Updated after every slice ships and after every prod smoke test.
 
-**Last updated:** 2026-05-26 (9.2 close)
+**Last updated:** 2026-05-26 (9.3 close — Slice 9 complete)
 
 ---
 
@@ -10,12 +10,12 @@
 
 | | |
 |---|---|
-| Current phase | Slice 9 — "Worlds Are Spaces" reframe (bridge between Phase 2 and Phase 3) |
-| Current slice | Sub-slices 9.1 (walk mode + collision + copy reframe) + 9.2 (collaborators) shipped 🟢. 9.3 (presence + chat via Liveblocks) next. |
-| In-flight | Awaiting founder prod migration for 0012 (Phase 2 0010 + 0011 already applied 2026-05-26); then prod smoke 9.1 + 9.2; then start 9.3. |
-| Tests | 761 across 51 test files |
-| Commits on main | Slices 0–7 + Phase 2 (8.1–8.4) + Slice 9.1 + 9.2 closeout (latest commit pending) |
-| Latest commit | (this commit — Slice 9.2 Collaborators) |
+| Current phase | Slice 9 — "Worlds Are Spaces" reframe (bridge between Phase 2 and Phase 3) — **COMPLETE** |
+| Current slice | Sub-slices 9.1 (walk mode + collision + copy reframe) + 9.2 (collaborators) + 9.3 (presence + chat via Liveblocks) all shipped 🟢. |
+| In-flight | Awaiting founder prod migration for 0012 (9.2 schema; Phase 2 0010 + 0011 already applied 2026-05-26); then 9.3 needs `LIVEBLOCKS_SECRET_KEY` in Vercel env (already added per founder). Then prod smoke 9.1 + 9.2 + 9.3 across two devices. |
+| Tests | 799 across 56 test files |
+| Commits on main | Slices 0–7 + Phase 2 (8.1–8.4) + Slice 9.1 + 9.2 + 9.3 closeout (latest commit pending) |
+| Latest commit | (this commit — Slice 9.3 Multi-user presence + chat via Liveblocks) |
 | Branch state | `main` clean, in sync with `origin/main` |
 | Production | https://forge-black-eta.vercel.app |
 | DB | Neon Postgres — 16 tables, 12 migrations applied locally (0010 = 8.1 substrate; 0011 = 8.2 indexes; 0012 = 9.2 world_collaborators + notifications enum). **Prod has 0010 + 0011 applied (2026-05-26). Prod migration for 0012 pending founder action.** |
@@ -28,8 +28,8 @@
 | Phase 0 — Foundation | ✅ COMPLETE | Slices 0–6 shipped |
 | Phase 1 — Launch | 🟡 IN PROGRESS | Slice 7 ✅ verified 2026-05-25; launch ops next (Terms, DMCA, onboarding, seed worlds, analytics, public launch) |
 | Phase 2 — Architectural Pivot | 🟢 SUBSTANTIALLY COMPLETE | Sub-slices 8.1 (Scene Graph Foundation) + 8.2 (Scene Graph API) + 8.3 (Improved Upload + Convert + Folder-Watcher CLI; absorbs 8.5 scope) + 8.4 (Browser Editor) all shipped 2026-05-26. ~~8.5~~ absorbed into 8.3. 8.6 (AI assist) parked per founder direction. Awaiting founder prod migration + prod smoke to flip 🟢 → ✅. |
-| Slice 9 — "Worlds Are Spaces" reframe | 🟡 IN PROGRESS | Bridge between Phase 2 and Phase 3 driven by founder's clarification: worlds are interactive virtual spaces, not 3D models to view. Sub-slice 9.1 (walk mode + collision + copy reframe) shipped 2026-05-26 🟢. 9.2 (collaborators — pulls async-collab from Phase 3) + 9.3 (multi-user presence + chat via Liveblocks — pulls presence from Phase 3) next. |
-| Phase 3 — Collaboration | ⬜ NOT STARTED | After Slice 9: realtime editor presence + voice chat + kick/mute moderation tools (the remaining Phase 3 work after 9 absorbs async-collab + visitor presence). |
+| Slice 9 — "Worlds Are Spaces" reframe | 🟢 SHIPPED | Bridge between Phase 2 and Phase 3. Driven by founder's clarification that worlds are interactive virtual spaces. Sub-slices 9.1 (walk mode + collision + copy reframe) + 9.2 (collaborators) + 9.3 (multi-user presence + chat via Liveblocks) all shipped 2026-05-26. Pulled async-collab + visitor presence forward from Phase 3. |
+| Phase 3 — Collaboration | ⬜ NOT STARTED | After Slice 9: realtime EDITOR presence (live collab editing in 3D) + voice chat + kick/mute moderation tools. The remaining Phase 3 work after Slice 9 absorbed async-collab + visitor presence. |
 | Phase 4 — Living Worlds | ⬜ NOT STARTED | Interactivity + portals + scripting |
 | Phase 5 — Persistent Ecosystem | ⬜ NOT STARTED | Cross-world identity, asset library, full AI gen |
 | Phase 6 — Long Horizon | ⬜ NOT STARTED | Federation, XR, scripting language |
@@ -277,6 +277,30 @@ Bridge between Phase 2 (architecture done) and Phase 3 (community features). Dri
 | Documentation | `docs/backend.md` heavily updated (new `getWorldRoleForUser` + `WorldRoleResult` exported type; 3 new routes; 3 relaxed routes; `notifications.type` CHECK; `world_collaborators` table section) · `docs/frontend.md` (3 new components + page wiring + notification renderer table) · `docs/infra.md` (0012 migration entry; 16-table count) · `docs/testing.md` (Slice 9.2 considerations section). |
 | Smoke checklist (prod) | (0) Prereq: 0012 migration applied to prod · (1) As owner, visit `/world/[id]` → see "Collaborators" section with just yourself · (2) Click "Invite collaborator" → enter another user's username → submit → row appears + dialog closes · (3) Invited user gets a notification "@you added them as a collaborator on **{title}**" in the bell + `/notifications` · (4) Click the notification → lands on `/world/[id]/edit` directly · (5) As the collaborator, visit `/world/[id]/edit` → editor opens (previously 403'd) · (6) Place objects, drag gizmo, hit Save → all work · (7) Click "Publish" button — should fail (403, owner-only); UI may surface error · (8) Visit `/profile/{collaborator-username}` → see "Worlds {name} can edit" section listing this world · (9) As owner, click "Remove" next to a collaborator → confirm → row disappears · (10) The removed collaborator visiting `/edit` again is now blocked · (11) As a collaborator, click "Leave" on own row → confirm → redirected to `/world/[id]` (now read-only for them) · (12) Invite same user twice → second time returns 409 with helpful "already a collaborator" inline error · (13) Invite an unknown username → 404 with "No user @{username}" · (14) Invite yourself (owner) → 409 "you can't invite yourself" · (15) CI green |
 
+#### Slice 9.3 — Multi-user presence + chat via Liveblocks 🟢
+
+| | |
+|---|---|
+| Status | Shipped + deployed; `LIVEBLOCKS_SECRET_KEY` added to Vercel env by founder. Awaiting two-device prod smoke. |
+| What | Visitors in walk mode see other live visitors as named capsule avatars in 3D + can chat with them via an in-world overlay. Anonymous visitors get auto-generated guest names + colors and can fully participate (no sign-in required for early days). Each world = one Liveblocks room. Pulls Phase 3's "Presence" piece forward. Realtime EDITOR presence + voice chat + kick/mute remain as the post-Slice-9 Phase 3 work. |
+| Realtime backbone | **Liveblocks v3.19.3** (already named in PROJECT.md stack as the planned choice). Free tier: 100 MAU + 100 concurrent + 7-day chat history. React-hooks-first SDK. Presence + Broadcast events used; Storage not used (scene-graph stays in our Postgres). |
+| New deps | `@liveblocks/client ^3.19.3` · `@liveblocks/react ^3.19.3` · `@liveblocks/node ^3.19.3` (all production deps) |
+| New env var | `LIVEBLOCKS_SECRET_KEY` — server-only, used by `getLiveblocksClient()` for JWT issuance; never exposed to the client bundle (`import "server-only"` guard in `src/lib/liveblocks/server.ts`) |
+| New API route | `POST /api/liveblocks/auth` — public (signed-in OR anonymous guest). Body `{ room: uuid, guestId? }`. Signed-in path: looks up DB user, 403 if suspended, builds `userInfo = { name: "@username", avatarUrl, color: visitorColor(dbUser.id), isGuest: false }`. Guest path: requires `guestId`, builds `userInfo = { name: "Guest_XXXX", avatarUrl: null, color: visitorColor(guestId), isGuest: true }`. Issues Liveblocks JWT via `session.allow(worldRoomId(id), FULL_ACCESS)`. Returns raw JSON token body. 400/403/404/503 errors. |
+| New lib modules | `src/lib/liveblocks/server.ts` (lazy singleton `getLiveblocksClient()` with `import "server-only"`) · `src/lib/liveblocks/types.ts` (`VisitorPresence`, `VisitorUserInfo`, `RoomEvent`, `worldRoomId()`) · `src/lib/liveblocks/types.d.ts` (global `Liveblocks` interface augmentation for hook typing) · `src/lib/visitor-color.ts` (djb2 hash → deterministic HSL) · `src/lib/guest-id.ts` (`getOrCreateGuestId` sessionStorage-backed, fallback to non-persistent generator on private browsing) |
+| New components | `LiveblocksRoomProvider` (client wrap; `<LiveblocksProvider authEndpoint={...}><RoomProvider id={worldRoomId} initialPresence={...}>`; sends `guestId` in every auth POST — server picks identity path) · `PresenceLayer` (R3F; `useOthers()` → maps to `<VisitorAvatar>`; filters `position: null` + `inWalkMode: false`) · `VisitorAvatar` (R3F; capsule + drei `<Billboard><Text>` name tag in user color; `userData.collidable = false` so others' avatars don't block your walk-mode raycasts) · `ChatPanel` (DOM-only overlay; pure-helper extraction for testability — `submitChat()` + `appendIncoming()`; rate-limit 1 msg/1.5s; 280-char cap; 30-message buffer; T-key focus / ESC-blur; auto-scroll to bottom) |
+| WalkMode integration | `useUpdateMyPresence()` on mount → announces `inWalkMode: true`; cleanup on unmount → `inWalkMode: false, position: null`. In `useFrame`: 100ms client-side throttle pushes `{ position, yaw, pitch, inWalkMode: true }` (Liveblocks's own throttle is a second layer of insurance). |
+| Identity model | Signed-in: `user_{dbUserId}` (stable across sessions) · Anonymous: `guest_{4-char-id}` (sessionStorage-persisted per browser tab; cleared on close). Visitor color hashed from the identifying id → same color across sessions for signed-in, per-tab for guests. |
+| Self-avatar | Not rendered (camera IS you — standard FPS convention) |
+| Self-message echo | Liveblocks's `useEventListener` does NOT fire for own broadcasts. `ChatPanel` locally appends sent messages with `isSelf: true` so the sender sees their own line immediately. |
+| Suspended user behavior | Auth route 403s at JWT issuance → Liveblocks connection fails → user invisible in `useOthers()` + chat broadcast no-ops. Cleanest moderation hook for v1. |
+| Schema / migration changes | NONE — presence is ephemeral in Liveblocks, chat is ephemeral per session (not DB-persisted in v1). |
+| Documentation | `docs/3d.md` updated (presence layer architecture + visitor avatar geometry + Liveblocks integration in WalkMode) · `docs/backend.md` (auth route + liveblocks lib directory + `LIVEBLOCKS_SECRET_KEY` gotcha) · `docs/frontend.md` (LiveblocksRoomProvider wrap + ChatPanel architecture + T-key/ESC wiring) · `docs/infra.md` (Liveblocks account setup + free-tier limits + upgrade trigger + env var matrix) · `docs/testing.md` (Slice 9.3 testing considerations: Liveblocks server mock, two-call db.select pattern, `server-only` bypass, IUserInfo cast) |
+| Tests | 761 → 799 (+38 across 6 new test files): `visitor-color.test.ts` (+3) · `guest-id.test.ts` (+7) · `liveblocks/types.test.ts` (+2) · `liveblocks/auth/route.test.ts` (+13) · `ChatPanel.test.ts` (+13 via pure-helper `submitChat` + `appendIncoming`). R3F-Canvas-wrapping components (`PresenceLayer`, `VisitorAvatar`, `LiveblocksRoomProvider`) NOT unit-tested — consistent with Phase 2 + 9.1 precedent (env is `node`, no WebGL); integration coverage via prod smoke. |
+| Cost trajectory | Free tier: 100 MAU + 100 concurrent + 7-day chat history. Sufficient for current scale (~31 worlds, handful of users). Upgrade trigger documented in `docs/infra.md`: ~1K active users or first MAU-cap notification → Starter plan. R2 egress remains $0; only added cost is Liveblocks subscription (currently $0). |
+| Explicitly out of v1 (parking lot) | Realtime EDITOR presence (live collab editing in 3D) · voice chat (LiveKit/WebRTC) · kick/mute moderation tools · DB-persisted chat history · avatar customization · server-side chat rate-limit · skinned avatars · position-lerp smoothing (raw position-set is acceptable with Liveblocks's ~100ms updates) |
+| Smoke checklist (prod) | (0) Prereq: 0012 migration applied + `LIVEBLOCKS_SECRET_KEY` in Vercel env · (1) Open two browsers (or normal + incognito) to same `/world/[id]` URL · (2) Both click "Enter world" → see each other's capsule + name tag moving as the other person moves · (3) Movement is fluid (some jitter is OK at ~10/sec presence rate) · (4) Press T → chat input focuses · type a message + Enter → sent · other window receives it · (5) Try rapid-fire 3 messages → second/third are rate-limited until 1.5s elapsed · (6) Sign out in one window → still see avatar (now as Guest_XXXX guest) · (7) Suspended user → auth route 403s → can't enter (avatar doesn't appear in other window) · (8) Refresh one window → other window's `useOthers()` updates (the connection drops + reconnects) · (9) Visit on phone → joysticks work + chat overlay visible (touch friendly?) · (10) CI green |
+
 ## 4. Known Issues / Follow-ups (Open)
 
 Things that work but should be cleaned up before or shortly after launch.
@@ -293,7 +317,7 @@ Things that work but should be cleaned up before or shortly after launch.
 
 | Metric | Value |
 |---|---|
-| **Total** | **51 test files / 761 tests** — all passing on main |
+| **Total** | **56 test files / 799 tests** — all passing on main |
 | Per-slice inventory | See `docs/testing.md` "Test Inventory by Slice" — owned + maintained by `test-engineer` |
 | 3D / R3F component tests | None (deferred to Phase 2 per `docs/testing.md`) |
 | E2E (Playwright/Cypress) | None (unit + integration only) |
@@ -307,7 +331,7 @@ Run anytime to verify state:
 ```bash
 git log --oneline -5            # Recent commits
 git status                       # Clean tree expected
-npm test                         # 761 tests expected
+npm test                         # 799 tests expected
 npm run build                    # Clean build expected
 npm run db:smoke                 # All 14 tables present, current row counts
 ```

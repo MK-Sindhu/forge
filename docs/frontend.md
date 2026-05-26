@@ -77,6 +77,10 @@ src/
     │   └── InviteCollaboratorDialog.tsx   # client component; Slice 9.2; props: worldId, open, onClose, onSuccess; native <dialog> element with showModal/close; backdrop click closes; ESC closes (cancel event listener); form with @ prefix input, autofocus on open; POST /api/worlds/[id]/collaborators with { username }; inline error messages per status code (404: no user, 409+existing: already collab, 409 no existing: owner conflict, 5xx: generic); loading spinner in Invite button; aria-modal + aria-labelledby + aria-describedby on error; focus trap via native <dialog>; no new deps
     ├── profile/
     │   └── EditableWorldsSection.tsx      # server component; Slice 9.2; props: username, userId, isSelf; queries worldCollaborators for worlds where userId is a collaborator; renders nothing when empty; heading adapts ("Worlds you can edit" vs "Worlds @username can edit"); thumbnail grid mirroring the owned-worlds grid; reuses WorldCardMedia + TagChip; limit 50, desc(addedAt) order
+    ├── world-visitor/
+    │   └── ChatPanel.tsx              # "use client"; Slice 9.3 Chunk 6; in-world chat overlay; fixed bottom-right 320×240px; bg-black/60 backdrop-blur-sm z-40; renders in WorldVisitor outside the Canvas (sibling to MobileJoysticks); useBroadcastEvent+useEventListener for ephemeral Liveblocks chat; T focuses input, ESC blurs; exports pure helpers submitChat+appendIncoming+constants for unit testing
+    ├── liveblocks/
+    │   └── LiveblocksRoomProvider.tsx  # "use client"; Slice 9.3; wraps WorldVisitorClient with <LiveblocksProvider authEndpoint={fn}> + <RoomProvider id={worldRoomId(worldId)} initialPresence={...}>; props: worldId, children; auth callback always sends guestId (strategy a); useMemo on authEndpoint; SSR-safe (no dynamic wrapper)
     └── editor/
         ├── editor-store.ts               # Phase 2 (8.4 Chunk A+D); pure logic — no UI; Zustand v5 store for the in-browser world editor; exports useEditorStore (React-bound) + createEditorStore() (vanilla factory for tests); holds scene graph + selection + gizmo mode + properties tab + pending ops + undo/redo stacks + save lifecycle state; addObject() now returns the new object id (string) — Chunk D change
         ├── EditorShell.tsx               # Phase 2 (8.4 Chunk B+D+E+F); client component; full-viewport 3-panel editor layout (asset panel left, viewport center, properties right) + phone gate; calls useEditorStore.initialize() on mount; calls useAutosave(worldId) to start the 2s autosave interval; renders PhoneNotice + EditorTopBar + panels + EditorStatusBar; hidden below md breakpoint; passes worldId + initialAssets to AssetPanel (Chunk D); imports PropertiesPanel (Chunk E, replaces PropertiesPanelPlaceholder)
@@ -108,7 +112,7 @@ src/
 |---|---|---|---|---|
 | `/` | `src/app/page.tsx` | Server | Feed (3 tabs via `?tab=`: Recent, Trending, Following). Cards show up to 3 tag chips + `+N more` overflow. Trending and Recent are public (no auth gate); Following redirects to sign-in if unauthenticated. **Onboarding:** `<WelcomeCallout />` renders above the tab bar for "fresh" signed-in users (no uploads + no follows). The `isFreshUser` flag is computed via two cheap 1-row DB probes (worlds + follows) immediately after the `currentDbUserId` lookup. Callout disappears automatically once user uploads or follows. `ContextualEmptyState` is now actionable: Following tab has "Browse Trending" + "Search worlds" buttons; Recent tab has "Upload your first world" button (signed-in only). | 1, 3, 4, 5, 7.1, 7.4, launch-ops |
 | `/search` | `src/app/search/page.tsx` | Server (public) | Full-text search results. Reads `?q=` and/or `?tag=`. Three branches: empty state (neither), FTS query (`q` only), tag filter (`tag` only), intersection (both). Direct DB query — no API route. Cap 50 results. `search_vector` is Postgres-managed (trigger-populated, not in Drizzle schema). `generateMetadata` produces dynamic title/description for shareable search URLs (e.g. `#mytag · FORGE`, `Search: "robots" · FORGE`). | 7.2, launch-polish |
-| `/world/[id]` | `src/app/world/[id]/page.tsx` | Server | World viewer page (3D + metadata + carousel + updates + comments + actions). Tag chips row below title. `generateMetadata` produces per-world OG + Twitter Card tags (title, description, thumbnail image, author). Direct DB query for metadata fetch (lean 3-column query — does not re-call the API route). **Viewer branch (9.1 Chunk 7):** if `world.sceneGraph !== null`, renders `<WorldVisitorClient sceneGraph assets ariaLabel />` (walk-mode visitor experience); otherwise falls back to `<WorldViewerClient glbUrl ariaLabel />` (legacy single-GLB path). All existing worlds have `sceneGraph: null` and continue to render via the legacy path unchanged. **Owner-only Phase 2 tools (8.3 Chunk C):** if owner + legacy world (`sceneGraph === null`) → `<ConvertToSceneGraphButton>`; if owner + scene-graph world → `<VersionHistorySection>`. Non-owners see neither. The `GET /api/worlds/[id]` response now includes `publishedVersionId` (null for legacy worlds). **Slice 9.2:** `<CollaboratorsSection worldId isOwner currentUserId />` rendered below the Phase 2 tools, visible to all (public). | 1, 2, 3, 4, 5, 7.1, 8.1, 8.3, 9.1, 9.2, launch-polish |
+| `/world/[id]` | `src/app/world/[id]/page.tsx` | Server | World viewer page (3D + metadata + carousel + updates + comments + actions). Tag chips row below title. `generateMetadata` produces per-world OG + Twitter Card tags (title, description, thumbnail image, author). Direct DB query for metadata fetch (lean 3-column query — does not re-call the API route). **Viewer branch (9.1 Chunk 7):** if `world.sceneGraph !== null`, renders `<LiveblocksRoomProvider worldId>` wrapping `<WorldVisitorClient sceneGraph assets ariaLabel />` (walk-mode visitor experience + presence context); otherwise falls back to `<WorldViewerClient glbUrl ariaLabel />` (legacy single-GLB path, no Liveblocks). All existing worlds have `sceneGraph: null` and continue to render via the legacy path unchanged. **Owner-only Phase 2 tools (8.3 Chunk C):** if owner + legacy world (`sceneGraph === null`) → `<ConvertToSceneGraphButton>`; if owner + scene-graph world → `<VersionHistorySection>`. Non-owners see neither. The `GET /api/worlds/[id]` response now includes `publishedVersionId` (null for legacy worlds). **Slice 9.2:** `<CollaboratorsSection worldId isOwner currentUserId />` rendered below the Phase 2 tools, visible to all (public). | 1, 2, 3, 4, 5, 7.1, 8.1, 8.3, 9.1, 9.2, 9.3, launch-polish |
 | `/world/[id]/edit` | `src/app/world/[id]/edit/page.tsx` | Server (owner OR editor-gated) | In-browser world editor. Auth + role gates (redirect to sign-in if unauthenticated; inline "no edit access" page if not owner or editor collaborator). Uses `getWorldRoleForUser()` from `world-permissions.ts` — returns a discriminated union so no `NextResponse` is needed in a server component. Legacy worlds (sceneGraph=null) get an inline "convert first" page with a link back. Fetches latest `world_versions` row (inline DB query, no API round-trip) + up to 100 `world_assets` rows. Parses `SceneGraphV1` defensively (inline error page if parse fails). Renders `<EditorShell>` with serializable props. `generateMetadata` returns `"Editing: {title}"` title + `robots: noindex`. No OG image. | 8.4 Chunk B, 9.2 C4 |
 | `/profile/[username]` | `src/app/profile/[username]/page.tsx` | Server | Profile (avatar, follower/following counts, world grid). Cards show up to 3 tag chips + `+N more` overflow. `generateMetadata` produces per-profile OG + Twitter Card tags (username, world count, avatar image). **Slice 9.2:** `<EditableWorldsSection username userId isSelf />` rendered below the owned-worlds grid; renders nothing when the user has no collab worlds. | 1, 3, 7.1, 9.2, launch-polish |
 | `/upload` | `src/app/upload/page.tsx` + `UploadForm.tsx` | Client (`UploadForm`) | Multi-step upload form. Static `metadata` for browser tab clarity (`Upload a world · FORGE`). | 1, 2, launch-polish |
@@ -590,7 +594,113 @@ Three new components wired into `/world/[id]` and `/profile/[username]`.
 - `/world/[id]/page.tsx` — `<CollaboratorsSection>` added below the Phase 2 owner tools (below `VersionHistorySection` / `ConvertToSceneGraphButton`). Visible to all viewers (public), not gated on `isOwner`.
 - `/profile/[username]/page.tsx` — `<EditableWorldsSection>` added below the owned-worlds grid. `isOwnProfile` passed as `isSelf`.
 
+### Slice 9.3 Chunk 4 — LiveblocksRoomProvider (shipped 2026-05-26)
+
+Sets up the two-layer Liveblocks React context that Chunk 5 (PresenceLayer) and Chunk 6 (ChatOverlay) depend on.
+
+**`LiveblocksRoomProvider`** (`src/components/liveblocks/LiveblocksRoomProvider.tsx`)
+- `"use client"` component. Props: `{ worldId: string; children: React.ReactNode }`.
+- Two-layer wrap (v3.19 canonical pattern):
+  - Outer: `<LiveblocksProvider authEndpoint={fn}>` — sets up auth + Liveblocks client. Auth function is a custom callback (not a plain URL string) so `guestId` can be injected into the request body alongside the room id.
+  - Inner: `<RoomProvider id={worldRoomId(worldId)} initialPresence={...}>` — joins the specific world's room.
+- Auth strategy (a): always sends `guestId` (read from `sessionStorage` via `getOrCreateGuestId()`). The server-side auth endpoint at `/api/liveblocks/auth` ignores `guestId` when a Clerk session is present. Client doesn't need to know whether the user is signed in.
+- Auth fallback: the Liveblocks `AuthEndpoint` type signature has `room?: string` (optional), so the callback accepts optional `room` and falls back to `worldId` if the SDK passes `undefined`.
+- `authEndpoint` wrapped in `useMemo([worldId])` so the function reference is stable across re-renders.
+- SSR-safe: `LiveblocksProvider` renders `{children}` without opening any WebSocket on the server; effects run only on the client. No `dynamic({ ssr: false })` wrapper needed — confirmed clean build.
+- `initialPresence`: `{ position: null, yaw: 0, pitch: 0, inWalkMode: false }`. Users are connected to the room as soon as the world page mounts — before clicking "Enter world". Their presence has `position: null` / `inWalkMode: false`. Chunk 5's `PresenceLayer` skips rendering an avatar for any user with `position === null`, so preview-mode users are invisible in the 3D scene. This is the correct behaviour.
+- **TypeScript note:** `initialPresence` uses `satisfies VisitorPresence` (not `: VisitorPresence`). `RoomProvider` expects `initialPresence: JsonObject | undefined`, and `VisitorPresence` lacks the index signature `[string]: unknown` required by `JsonObject`. The `satisfies` preserves type-checking while allowing the value to be inferred as a structurally compatible object. The `Liveblocks.Presence = VisitorPresence` global augmentation in `types.d.ts` wires the hooks correctly at the hook-call level.
+- No tests: the component is a thin provider shell with no logic seams. The auth callback is covered by the API route's test file (`src/app/api/liveblocks/auth/route.test.ts` in Chunk 3).
+
+**`src/lib/liveblocks/types.d.ts`** (new)
+- Pure TypeScript declaration file (no runtime import needed). Placed alongside `types.ts` in `src/lib/liveblocks/`.
+- Augments the `Liveblocks` global interface declared by `@liveblocks/core`:
+  ```ts
+  interface Liveblocks {
+    Presence: VisitorPresence;
+    UserMeta: { id: string; info: VisitorUserInfo };
+    RoomEvent: RoomEvent;
+    Storage: Record<string, never>; // no shared storage in v1
+  }
+  ```
+- Once in scope (TypeScript picks up `.d.ts` files inside `src/` automatically), all hooks from `@liveblocks/react` are fully typed:
+  - `useMyPresence()` → `[VisitorPresence, (patch) => void]`
+  - `useOthers()` → `User<VisitorPresence, { id: string; info: VisitorUserInfo }>[]`
+  - `useBroadcastEvent()` → `(event: RoomEvent) => void`
+  - `useEventListener(cb)` → `cb` receives `RoomEvent`
+- Chose `.d.ts` file over appending to `types.ts`: keeps type augmentation separate from runtime code; no import side-effects needed.
+
+**Page wiring — `src/app/world/[id]/page.tsx`**
+- Added `import { LiveblocksRoomProvider }` from the new component file.
+- Scene-graph world branch (`world.sceneGraph !== null`): `<WorldVisitorClient>` is now wrapped with `<LiveblocksRoomProvider worldId={world.id}>`.
+- Legacy world branch (`sceneGraph === null`): `<WorldViewerClient>` is NOT wrapped — legacy worlds don't support walk mode so presence is irrelevant.
+
+### Slice 9.3 Chunk 6 — In-world Chat Overlay (shipped 2026-05-26)
+
+Ephemeral in-world chat panel rendered as a DOM sibling to `<MobileJoysticks>` inside `WorldVisitor`.
+
+**`ChatPanel`** (`src/components/world-visitor/ChatPanel.tsx`)
+- `"use client"` component. No props — reads Liveblocks context from the surrounding `<LiveblocksRoomProvider>`.
+- **Layout:** `fixed bottom-4 right-4 z-40` — 320 × 240px, `bg-black/60 backdrop-blur-sm`. Three sections: header (Chat label + count badge `N/30`) · scrollable message list · input row with text field + Send button.
+- **z-index layers:** canvas sits at z=0; MobileJoysticks at z=50; ControlsHint at z=60; ChatPanel at z=40. Panel is visible but below touch controls and hint banner.
+- **Opacity:** 80% idle / 100% when input is focused (`opacity-80 hover:opacity-100`; `opacity-100` on focus via `inputFocused` state).
+- **pointer-events: auto** — clicks/drags reach the input. Canvas receives pointer events in all areas outside the panel (CSS default).
+
+**State:**
+- `messages: ChatMessage[]` — cap 30; drops oldest on overflow. Ephemeral (not persisted; cleared on page refresh).
+- `inputValue: string` — controlled input.
+- `inputFocused: boolean` — drives opacity + ESC blur logic.
+- `lastSentRef: useRef(0)` — `0` = never sent (cold start). Rate-limit check skips when `lastSentAt === 0`.
+- `rateLimitError: boolean` — brief "Slow down" message above input on rapid send; auto-clears after 1500ms.
+
+**Send flow:**
+1. User types + presses Enter (or clicks Send button).
+2. `submitChat()` pure helper: trims → empty check → rate-limit check (skipped when `lastSentAt=0`) → truncate to 280 chars → `broadcast({ type: "chat", text })`.
+3. Locally append `ChatMessage { isSelf: true }` to `messages` state — sender sees their own message immediately (Liveblocks `useEventListener` does NOT fire for own broadcasts).
+4. Update `lastSentRef.current`, clear input.
+
+**Receive flow:**
+- `useEventListener(({ event, user }) => { ... })` — fires for all other users' broadcasts.
+- `event` is cast to `RoomEvent` (the TypeScript generic resolves to `Json` at this call site; the cast is safe per the global `Liveblocks` augmentation in `types.d.ts`).
+- `user.info` is cast to `VisitorUserInfo` (same rationale).
+- `appendIncoming()` pure helper appends the message and enforces `MAX_MESSAGES=30` cap.
+
+**Auto-scroll:** `useLayoutEffect` (before paint) calls `listRef.current?.scrollTo({ top: listRef.current.scrollHeight })` on every `messages` change.
+
+**Keyboard shortcuts (defined in ChatPanel, not WalkMode):**
+- `T` key (when focus is NOT in a text input) → `inputRef.current?.focus()`. Prevents the WASD handler in WalkMode from consuming T while in the editor (the editor WalkMode uses T for gizmo mode — this separation is intentional).
+- `ESC` key (when `inputFocused === true`) → `inputRef.current?.blur()` → returns control to walk movement. WalkMode's `onKeyDown` handler already gates WASD on `target.tagName === "INPUT"`, so WASD won't fire while typing.
+
+**Exported pure helpers (for testability):**
+- `submitChat(input: SubmitChatInput): SubmitChatResult` — accepts `broadcastImpl` as a parameter so tests pass a mock. Returns `{ kind: "ok"; message }`, `{ kind: "rate-limited" }`, or `{ kind: "empty" }`.
+- `appendIncoming({ event, userInfo, messages }): ChatMessage[]` — pure function; does not mutate input array.
+- Also exports constants: `MAX_MESSAGES = 30`, `MAX_CHARS = 280`, `RATE_LIMIT_MS = 1500`.
+
+**Suspended user behavior:**
+- The auth route returns 403 for suspended users → Liveblocks connection silently fails. `broadcast()` becomes a no-op; `useEventListener` never fires. Panel shows "No messages yet" placeholder. No special handling needed in the component — documented in a code comment.
+
+**`WorldVisitor.tsx` wiring:**
+- Added `import { ChatPanel }` from `./ChatPanel`.
+- `{mode === "walking" && <ChatPanel />}` rendered outside the `<Canvas>` as a DOM sibling to `<MobileJoysticks>` and `<ControlsHint>`, inside the same parent div — same pattern as the joysticks.
+
+**Test file:** `src/components/world-visitor/ChatPanel.test.ts` (13 tests — no React render, no Liveblocks mock, no DOM). Covers:
+- `submitChat` happy path: broadcasts once, returns correct `ChatMessage` shape.
+- `submitChat` trims whitespace before broadcast.
+- `submitChat` empty string → `kind: "empty"`, no broadcast.
+- `submitChat` whitespace-only → `kind: "empty"`, no broadcast.
+- `submitChat` rate-limited path: 1 ms before window → `kind: "rate-limited"`, no broadcast.
+- `submitChat` boundary: exactly `RATE_LIMIT_MS` elapsed → allowed.
+- `submitChat` cold-start (lastSentAt=0, now=0) → allowed (special case).
+- `submitChat` 300-char input → truncated to 280, broadcast called with truncated text.
+- `submitChat` exact 280-char input → not truncated.
+- `appendIncoming` happy path: `isSelf: false`, correct shape, id is string.
+- `appendIncoming` does not mutate original array.
+- `appendIncoming` at cap (MAX_MESSAGES): drops oldest, returns exactly 30.
+- `appendIncoming` multi-overflow sequence: cap maintained across two consecutive additions.
+
+**Test count delta:** 786 → 799 (+13).
+
 ### Still to come (Phase 2 / Slice 9)
 
 - Touch-friendly editor controls (tablets day-one, phones graceful-degradation)
+- Chunk 7: docs + commit closeout
 - See `ROADMAP.md` Phase 2 for details

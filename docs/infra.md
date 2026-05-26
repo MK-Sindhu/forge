@@ -14,6 +14,7 @@
 | Auth | Clerk v7 | Hosted; user rows created on-demand via `getOrCreateDbUser` (no webhook) |
 | CI | GitHub Actions | Lint + test + build on PR and push to `main` |
 | AI (when used) | Anthropic Claude API | Phase 2 editor assist, Phase 5 full generation |
+| Realtime | Liveblocks | Presence + chat for `/world/[id]` visitor rooms (Slice 9.3+). SDK: `@liveblocks/client` + `@liveblocks/react` + `@liveblocks/node` v3.19.3. |
 
 ## Repository Configuration
 
@@ -51,6 +52,7 @@
 | `R2_BUCKET_MEDIA` | Yes | `forge-media` |
 | `R2_PUBLIC_URL_GLB` | Yes | Public base URL for the GLB bucket |
 | `R2_PUBLIC_URL_MEDIA` | Yes | Public base URL for the media bucket |
+| `LIVEBLOCKS_SECRET_KEY` | Yes (Slice 9.3+) | Liveblocks secret key from the "forge" Development project dashboard. Used by `src/lib/liveblocks/server.ts` to issue room tokens. Never expose to the client — no `NEXT_PUBLIC_` prefix. Lazy-init: build passes in CI without a real value; the route throws at request time. |
 
 ### Important gotcha — env vars are duplicated
 
@@ -132,6 +134,40 @@ Vercel build evaluates module-level code. If `r2.ts` read env vars at module loa
 
 1. `r2.ts` initializes the S3 client lazily (on first use, not module load)
 2. CI workflow has placeholder env vars for R2 to be safe
+
+## Liveblocks (Realtime Presence + Chat)
+
+Added in Slice 9.3. Liveblocks handles multi-user room presence and broadcast events for `/world/[id]` visitor sessions.
+
+### Account setup
+
+- Liveblocks project: "forge" (Development environment)
+- Region: US East (default)
+- Founder created the project and added `LIVEBLOCKS_SECRET_KEY` to `.env.local` + Vercel env.
+
+### Free tier limits (as of 2026-05)
+
+| Limit | Value |
+|---|---|
+| Monthly active users (MAU) | 100 |
+| Concurrent connections | 100 |
+| Chat history retention | 7 days |
+
+**Upgrade trigger:** upgrade to the Starter plan (~$25/mo) when FORGE approaches ~1K active users or receives a MAU-cap warning from Liveblocks (whichever comes first). The Starter plan raises MAU to ~1K and concurrent to ~500. Check https://liveblocks.io/pricing for current plan limits.
+
+**What we use:**
+- `liveblocks.prepareSession()` + `session.authorize()` in the `/api/liveblocks/auth` route (Chunk 2) to issue room JWTs
+- `<RoomProvider>` from `@liveblocks/react` wraps the world visitor view
+- `useMyPresence` / `useOthers` for position sync (capsule avatars)
+- `useBroadcastEvent` / `useEventListener` for chat messages
+
+### Client (server-only wrapper)
+
+`src/lib/liveblocks/server.ts` — lazy-init singleton via `getLiveblocksClient()`. Never call `new Liveblocks(...)` directly in a route handler; always go through this function.
+
+### CI note
+
+`LIVEBLOCKS_SECRET_KEY` is NOT required for CI (build passes without it — lazy-init). Do NOT add a placeholder to `ci.yml`. The route throws at request time if the key is missing, which is caught by integration tests or prod smoke.
 
 ## CI (GitHub Actions)
 
