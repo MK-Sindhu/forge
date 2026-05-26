@@ -2,7 +2,7 @@
 
 > The "what is done, what is left, what is in-flight" doc. Updated after every slice ships and after every prod smoke test.
 
-**Last updated:** 2026-05-26 (9.1 close)
+**Last updated:** 2026-05-26 (9.2 close)
 
 ---
 
@@ -11,14 +11,14 @@
 | | |
 |---|---|
 | Current phase | Slice 9 — "Worlds Are Spaces" reframe (bridge between Phase 2 and Phase 3) |
-| Current slice | Sub-slice 9.1 (Walk mode + collision + copy reframe) shipped 🟢. 9.2 (collaborators) + 9.3 (presence + chat via Liveblocks) next. |
-| In-flight | Awaiting founder prod migration for 0010 + 0011 (Phase 2 schema; 9.1 adds no migrations); then prod smoke 9.1 + start 9.2. |
-| Tests | 711 across 46 test files |
-| Commits on main | Slices 0–7 + Phase 2 (8.1–8.4) + Slice 9.1 closeout (latest commit pending) |
-| Latest commit | (this commit — Slice 9.1 Walk mode + collision + copy reframe) |
+| Current slice | Sub-slices 9.1 (walk mode + collision + copy reframe) + 9.2 (collaborators) shipped 🟢. 9.3 (presence + chat via Liveblocks) next. |
+| In-flight | Awaiting founder prod migration for 0012 (Phase 2 0010 + 0011 already applied 2026-05-26); then prod smoke 9.1 + 9.2; then start 9.3. |
+| Tests | 761 across 51 test files |
+| Commits on main | Slices 0–7 + Phase 2 (8.1–8.4) + Slice 9.1 + 9.2 closeout (latest commit pending) |
+| Latest commit | (this commit — Slice 9.2 Collaborators) |
 | Branch state | `main` clean, in sync with `origin/main` |
 | Production | https://forge-black-eta.vercel.app |
-| DB | Neon Postgres — 14 tables, 11 migrations applied locally (0010 = 8.1 substrate; 0011 = 8.2 indexes). **Prod migration for 0010 + 0011 pending founder action.** |
+| DB | Neon Postgres — 16 tables, 12 migrations applied locally (0010 = 8.1 substrate; 0011 = 8.2 indexes; 0012 = 9.2 world_collaborators + notifications enum). **Prod has 0010 + 0011 applied (2026-05-26). Prod migration for 0012 pending founder action.** |
 | Storage | Cloudflare R2 — 2 buckets (forge-glb, forge-media); 8.2 adds `assets/{userId}/{assetId}/asset.glb` prefix under `forge-glb` |
 
 ## 2. Phase Rollup
@@ -256,7 +256,26 @@ Bridge between Phase 2 (architecture done) and Phase 3 (community features). Dri
 | Documentation | `docs/3d.md` extensively updated (visitor mode architecture, desktop/touch split, pointer-lock pattern, spawn resolution, EYE_HEIGHT, ref-registration map, collision algorithm) · `docs/frontend.md` updated (Chunks 4/6/7 sections + copy reframe table) · `docs/testing.md` updated (Slice 9 testing considerations: jsdom-directive gotcha, two-call raycaster mock pattern, IEEE 754 -0 in toBeCloseTo) |
 | Tests | 659 → 711 (+52 across 5 new test files): `movement.test.ts` (+8) · `collision.test.ts` (+7) · `use-touch-device.test.ts` (+4) · `ControlsHint.test.ts` (+7) · `MobileJoysticks.test.ts` (+20) · `EnterWorldOverlay.test.ts` (+6). R3F-Canvas-wrapping components (`WorldVisitor`/`WalkMode`/`PreviewMode`) NOT unit-tested — environment is `node`, no WebGL; pure logic seams covered, full integration via prod smoke. |
 | Explicitly out of v1 (parking lot, addressed in 9.2/9.3 or later) | Multi-user presence (9.3) · in-world chat (9.3) · "Invite collaborator" UI + editor-role gating (9.2) · jumping/flying/gravity physics (Phase 4) · trigger zones / portals (Phase 4) · voice chat (Phase 3) · persistent avatar customization (Phase 5) |
-| Smoke checklist (prod) | (0) Prereq: 0010 + 0011 migrations applied to prod (still pending from Phase 2) · (1) Visit a scene-graph world → see preview with "Enter world" CTA overlay · (2) Click Enter → pointer locks · WASD moves · mouse looks · Shift runs · ESC exits → returns to preview · (3) Walk into a wall → camera stops + slides along wall · (4) Walk up an inclined surface (a slanted asset) → camera Y snaps to follow the surface · (5) ControlsHint banner appears first time only · "Got it" dismisses + persists via localStorage · (6) Touch device (or DevTools device emulation in Chrome) → two on-screen joysticks instead of pointer-lock prompt · drag left = move · drag right = look · Exit button returns · (7) Legacy unconverted worlds keep working via legacy `WorldViewer` (orbit only) — untouched · (8) All upload + search + feed pages show new "world" / "space" copy; no "3D model" anywhere user-facing · (9) CI green |
+| Smoke checklist (prod) | (0) Prereq: 0010 + 0011 migrations applied to prod (✅ applied 2026-05-26) · (1) Visit a scene-graph world → see preview with "Enter world" CTA overlay · (2) Click Enter → pointer locks · WASD moves · mouse looks · Shift runs · ESC exits → returns to preview · (3) Walk into a wall → camera stops + slides along wall · (4) Walk up an inclined surface (a slanted asset) → camera Y snaps to follow the surface · (5) ControlsHint banner appears first time only · "Got it" dismisses + persists via localStorage · (6) Touch device (or DevTools device emulation in Chrome) → two on-screen joysticks instead of pointer-lock prompt · drag left = move · drag right = look · Exit button returns · (7) Legacy unconverted worlds keep working via legacy `WorldViewer` (orbit only) — untouched · (8) All upload + search + feed pages show new "world" / "space" copy; no "3D model" anywhere user-facing · (9) CI green |
+
+#### Slice 9.2 — Collaborators 🟢
+
+| | |
+|---|---|
+| Status | Shipped + deployed; prod migration for 0012 pending founder action. |
+| What | Owners can invite other users as `editor` collaborators; collaborators get full access to the browser editor on that world (scene-graph ops + asset upload + asset delete + reading versions). Owners retain exclusive access to Publish, Convert-to-scene-graph, and Collaborator management. New `world_collaborators` table + extended `requireWorldRole` helper to query it for non-owners. New `getWorldRoleForUser()` exported helper returning a discriminated union for server-component consumers (cleaner than wrapping NextResponse). Notification fanout on invite; new `collaborator_added` notification type renders in the bell + `/notifications` list with a direct link to `/world/[id]/edit`. UI: `CollaboratorsSection` on world page (visible to all; owner sees Invite + Remove buttons; self-collaborator sees Leave button) + `InviteCollaboratorDialog` (native `<dialog>` modal) + `EditableWorldsSection` on profile pages (server-component grid of worlds this user can edit). |
+| Schema additions | New `world_collaborators` table: `(world_id, user_id)` composite PK · `role text` (CHECK `'editor'`) · `added_at` · `added_by_id` (FK to users; ON DELETE SET NULL). Plus index on `user_id` for "worlds I can edit" reverse lookup. Plus `notifications.type` CHECK extended with `'collaborator_added'`. |
+| Migration | `0012_slice9_world_collaborators.sql` — additive table + index + CHECK constraint swap on `notifications`. Zero-downtime. |
+| New API routes | `GET /api/worlds/[id]/collaborators` (public; owner + collaborators list with `addedBy` hydration; cap 50) · `POST /api/worlds/[id]/collaborators` (owner-only; body `{ username }`; 201 + notify post-commit; 404 user not found; 409 dupe with `existing` body; 409 owner-as-collab) · `DELETE /api/worlds/[id]/collaborators/[userId]` (owner-or-self gate; 200 `{ removed: true }`). |
+| Relaxed routes (owner → editor) | `POST /scene-graph/ops` · `POST /assets` (POST only; GET stays public) · `DELETE /assets/[assetId]` — collaborators can use the editing surface. |
+| Owner-only routes (unchanged) | `POST /versions/[v]/publish` · `POST /convert-to-scene-graph` · both collaborator routes (DELETE has self-remove exception). |
+| Permission helper extension | `requireWorldRole(worldId, dbUser, role)` extended via private `getCollaboratorRole()` to query `world_collaborators` for non-owners. New `getWorldRoleForUser()` discriminated-union variant (`"ok" \| "not-found" \| "forbidden" \| "db-error"`) for server components that can't return NextResponse. The Phase-3 comment in the file is now active. |
+| Editor page gate | `/world/[id]/edit/page.tsx` now uses `getWorldRoleForUser()` accepting `editor` minimum role. Forbidden copy: "You don't have edit access to this world" with "Back to world" link. |
+| New components | `CollaboratorsSection` (client; fetches + renders list + Invite/Remove/Leave with optimistic state) · `InviteCollaboratorDialog` (client; native `<dialog>` modal with username input + 404/409/5xx inline errors; no new deps) · `EditableWorldsSection` (server component; inline `db.query.worldCollaborators.findMany` with `with: { world }`; returns null when empty; reuses `WorldCardMedia` + `TagChip`). |
+| Notification renderer | `src/app/notifications/NotificationList.tsx` extended with case `"collaborator_added"` → text `@{actor} added you as a collaborator on **{world.title}**`, href `/world/{worldId}/edit` (direct-to-action). |
+| Tests | 711 → 761 (+50 across 5 new test files + 4 extensions): `world-permissions.test.ts` (+6 covering collaborator branch + `getWorldRoleForUser`) · `collaborators/route.test.ts` (+12) · `collaborators/[userId]/route.test.ts` (+6) · ops route extension (+1 editor-can-edit) · assets route extension (+1 editor-can-upload) · asset DELETE extension (+1 editor-can-delete) · `CollaboratorsSection.test.ts` (+20 via logic-extraction pattern) · `InviteCollaboratorDialog.test.ts` (+8 via discriminated-union `runSubmit` helper) · `EditableWorldsSection.test.ts` (+3 server-component query tests with stubbed components). |
+| Documentation | `docs/backend.md` heavily updated (new `getWorldRoleForUser` + `WorldRoleResult` exported type; 3 new routes; 3 relaxed routes; `notifications.type` CHECK; `world_collaborators` table section) · `docs/frontend.md` (3 new components + page wiring + notification renderer table) · `docs/infra.md` (0012 migration entry; 16-table count) · `docs/testing.md` (Slice 9.2 considerations section). |
+| Smoke checklist (prod) | (0) Prereq: 0012 migration applied to prod · (1) As owner, visit `/world/[id]` → see "Collaborators" section with just yourself · (2) Click "Invite collaborator" → enter another user's username → submit → row appears + dialog closes · (3) Invited user gets a notification "@you added them as a collaborator on **{title}**" in the bell + `/notifications` · (4) Click the notification → lands on `/world/[id]/edit` directly · (5) As the collaborator, visit `/world/[id]/edit` → editor opens (previously 403'd) · (6) Place objects, drag gizmo, hit Save → all work · (7) Click "Publish" button — should fail (403, owner-only); UI may surface error · (8) Visit `/profile/{collaborator-username}` → see "Worlds {name} can edit" section listing this world · (9) As owner, click "Remove" next to a collaborator → confirm → row disappears · (10) The removed collaborator visiting `/edit` again is now blocked · (11) As a collaborator, click "Leave" on own row → confirm → redirected to `/world/[id]` (now read-only for them) · (12) Invite same user twice → second time returns 409 with helpful "already a collaborator" inline error · (13) Invite an unknown username → 404 with "No user @{username}" · (14) Invite yourself (owner) → 409 "you can't invite yourself" · (15) CI green |
 
 ## 4. Known Issues / Follow-ups (Open)
 
@@ -274,7 +293,7 @@ Things that work but should be cleaned up before or shortly after launch.
 
 | Metric | Value |
 |---|---|
-| **Total** | **46 test files / 711 tests** — all passing on main |
+| **Total** | **51 test files / 761 tests** — all passing on main |
 | Per-slice inventory | See `docs/testing.md` "Test Inventory by Slice" — owned + maintained by `test-engineer` |
 | 3D / R3F component tests | None (deferred to Phase 2 per `docs/testing.md`) |
 | E2E (Playwright/Cypress) | None (unit + integration only) |
@@ -288,7 +307,7 @@ Run anytime to verify state:
 ```bash
 git log --oneline -5            # Recent commits
 git status                       # Clean tree expected
-npm test                         # 711 tests expected
+npm test                         # 761 tests expected
 npm run build                    # Clean build expected
 npm run db:smoke                 # All 14 tables present, current row counts
 ```

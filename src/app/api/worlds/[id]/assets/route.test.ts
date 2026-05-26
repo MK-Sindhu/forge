@@ -13,6 +13,7 @@ const {
   mockDbSelectLimit,
   mockDbFindMany,
   mockDbInsertReturning,
+  mockDbInsertValues,
   mockHeadObject,
   mockPublicUrlFor,
   mockBuildAssetKey,
@@ -28,6 +29,8 @@ const {
   mockDbFindMany: vi.fn(),
   // db.insert(worldAssets).values().returning() — asset row insert (POST path)
   mockDbInsertReturning: vi.fn(),
+  // Spy on the values() call to capture what is inserted (used in editor test)
+  mockDbInsertValues: vi.fn(),
   // External boundary: headObject calls R2 — not available in test runner
   mockHeadObject: vi.fn(),
   // External boundary: publicUrlFor resolves bucket env var — mocked for determinism
@@ -64,9 +67,12 @@ vi.mock("@/db", () => ({
       },
     },
     insert: () => ({
-      values: () => ({
-        returning: (_cols: unknown) => mockDbInsertReturning(),
-      }),
+      values: (vals: unknown) => {
+        mockDbInsertValues(vals);
+        return {
+          returning: (_cols: unknown) => mockDbInsertReturning(),
+        };
+      },
     }),
   },
 }));
@@ -256,6 +262,75 @@ describe("POST /api/worlds/[id]/assets — R2 existence check", () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toMatch(/size mismatch/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST tests — editor (non-owner collaborator) access
+// ---------------------------------------------------------------------------
+
+describe("POST /api/worlds/[id]/assets — editor collaborator", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it("editor can POST a new asset and uploaderId reflects the editor's id", async () => {
+    // Caller is a collaborator (editor), NOT the world owner.
+    // requireWorldRole is mocked to return role:"editor" (Chunk 4 relaxed the
+    // gate from owner-only to editor-or-above).
+    const EDITOR_CLERK_ID = "clerk_editor_xyz";
+    const EDITOR_DB_ID = "db-uuid-editor-001";
+    const OWNER_DB_ID = "db-uuid-owner-999"; // world.userId — DIFFERENT from editor
+
+    const editorDbUser = {
+      id: EDITOR_DB_ID,
+      clerkId: EDITOR_CLERK_ID,
+      username: "editor",
+      email: "editor@example.com",
+      avatarUrl: null,
+      createdAt: new Date("2026-01-01"),
+      tosAcceptedAt: null,
+    };
+
+    mockAuth.mockResolvedValue({ userId: EDITOR_CLERK_ID });
+    mockCurrentUser.mockResolvedValue({
+      id: EDITOR_CLERK_ID,
+      username: "editor",
+      emailAddresses: [{ emailAddress: "editor@example.com" }],
+      imageUrl: null,
+    });
+    mockRequireActiveDbUser.mockResolvedValue(editorDbUser);
+    // requireWorldRole passes — caller is a collaborator with editor role
+    mockRequireWorldRole.mockResolvedValue({
+      world: { id: WORLD_UUID, userId: OWNER_DB_ID }, // owner's id ≠ editor's id
+      role: "editor",
+    });
+    mockBuildAssetKey.mockReturnValue(FAKE_OBJECT_KEY);
+    mockHeadObject.mockResolvedValue({
+      exists: true,
+      contentLength: ASSET_SIZE_BYTES,
+      contentType: "model/gltf-binary",
+    });
+    mockPublicUrlFor.mockReturnValue(FAKE_GLB_URL);
+    mockDbInsertReturning.mockResolvedValue([ASSET_ROW]);
+
+    const res = await callPost(WORLD_UUID, {
+      assetId: ASSET_UUID,
+      name: "myBox",
+      sizeBytes: ASSET_SIZE_BYTES,
+    });
+
+    // 201 — editor gate passes
+    expect(res.status).toBe(201);
+
+    // world_assets row must be attributed to the EDITOR (uploaderId = editor's db id),
+    // not the world owner. This confirms the route passes dbUser.id (the collaborator)
+    // as uploaderId, not world.userId (the owner).
+    expect(mockDbInsertValues).toHaveBeenCalledOnce();
+    expect(mockDbInsertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uploaderId: EDITOR_DB_ID, // editor's id — not the owner's id
+        worldId: WORLD_UUID,
+      })
+    );
   });
 });
 

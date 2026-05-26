@@ -23,7 +23,7 @@
  * Errors (POST):
  *   400 — invalid body / asset not uploaded / size mismatch
  *   401 — not signed in
- *   403 — not world owner
+ *   403 — not world owner or editor
  *   404 — world not found
  *   503 — DB error or unique-constraint collision (editor should generate fresh IDs)
  *
@@ -153,8 +153,8 @@ export async function POST(
   }
   const worldId = idParsed.data;
 
-  // 3. World ownership gate (also confirms world exists; returns 404 if missing)
-  const roleResult = await requireWorldRole(worldId, dbUser, "owner");
+  // 3. World role gate — owner or editor (collaborators can upload assets)
+  const roleResult = await requireWorldRole(worldId, dbUser, "editor");
   if (roleResult instanceof NextResponse) return roleResult;
 
   // 4. Parse + validate body

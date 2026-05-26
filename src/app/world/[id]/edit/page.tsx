@@ -1,13 +1,14 @@
 /**
  * /world/[id]/edit — in-browser world editor page.
  *
- * Server component. Owner-gated. Fetches initial scene-graph + asset data
- * inline from the DB (faster than round-tripping through the API route).
+ * Server component. Owner or editor-gated (collaborators can open the editor).
+ * Fetches initial scene-graph + asset data inline from the DB (faster than
+ * round-tripping through the API route).
  *
  * Gates:
  *  1. Not signed in → 401-style redirect to sign-in
  *  2. World not found → notFound()
- *  3. Not the world owner → "forbidden" inline page
+ *  3. Not the world owner or an editor collaborator → "forbidden" inline page
  *  4. Legacy world (sceneGraph === null) → "convert first" inline page
  *
  * Passes serializable data to <EditorShell> which owns the client-side
@@ -22,6 +23,7 @@ import { eq, desc } from "drizzle-orm";
 import { db } from "@/db";
 import { worlds, worldVersions, worldAssets } from "@/db/schema";
 import { requireActiveDbUser } from "@/lib/users";
+import { getWorldRoleForUser } from "@/lib/world-permissions";
 import { parseSceneGraph } from "@/lib/scene-graph/schema";
 import type { SceneGraphV1 } from "@/lib/scene-graph/schema";
 import { EditorShell } from "@/components/editor/EditorShell";
@@ -81,30 +83,25 @@ export default async function EditWorldPage(
   }
   const dbUser = dbUserOrError;
 
-  // 3. Look up the world
-  const world = await db.query.worlds.findFirst({
-    where: eq(worlds.id, id),
-    columns: {
-      id: true,
-      userId: true,
-      title: true,
-      sceneGraph: true,
-      publishedVersionId: true,
-    },
-  });
+  // 3. Look up the world + resolve role (owner or editor collaborator)
+  const roleResult = await getWorldRoleForUser(id, dbUser);
 
-  if (!world) {
+  if (roleResult.kind === "not-found") {
     notFound();
   }
 
-  // 4. Owner gate
-  if (world.userId !== dbUser.id) {
+  if (roleResult.kind === "db-error") {
+    // Redirect to the world page which will surface a generic error message.
+    redirect(`/world/${id}`);
+  }
+
+  if (roleResult.kind === "forbidden") {
     return (
       <main className="min-h-screen flex items-center justify-center bg-zinc-950 text-zinc-100 px-6">
         <div className="max-w-sm w-full text-center space-y-4">
-          <h1 className="text-xl font-semibold">You can only edit worlds you own</h1>
+          <h1 className="text-xl font-semibold">You don&apos;t have edit access to this world</h1>
           <p className="text-sm text-zinc-400">
-            This world belongs to someone else. You can view it, but not edit it.
+            Only the world owner and invited collaborators can open the editor.
           </p>
           <Link
             href={`/world/${id}`}
@@ -117,6 +114,9 @@ export default async function EditWorldPage(
       </main>
     );
   }
+
+  // roleResult.kind === "ok"
+  const world = roleResult.world;
 
   // 5. Scene-graph gate — legacy worlds must be converted first
   if (world.sceneGraph === null) {

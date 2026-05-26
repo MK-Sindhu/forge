@@ -190,6 +190,9 @@ export const usersRelations = relations(users, ({ many }) => ({
   // Slice 7.5 — notifications
   receivedNotifications: many(notifications, { relationName: "notificationRecipient" }),
   actedNotifications: many(notifications, { relationName: "notificationActor" }),
+  // Slice 9.2 — collaborators (two named relations to resolve dual-FK ambiguity)
+  worldCollaboratorsUser: many(worldCollaborators, { relationName: "worldCollaboratorsUser" }),
+  worldCollaboratorsAddedBy: many(worldCollaborators, { relationName: "worldCollaboratorsAddedBy" }),
 }));
 
 export const worldsRelations = relations(worlds, ({ one, many }) => ({
@@ -213,6 +216,8 @@ export const worldsRelations = relations(worlds, ({ one, many }) => ({
     references: [worldVersions.id],
     relationName: "publishedVersion",
   }),
+  // Slice 9.2 — collaborators
+  collaborators: many(worldCollaborators),
 }));
 
 export const worldMediaRelations = relations(worldMedia, ({ one }) => ({
@@ -462,7 +467,7 @@ export const notifications = pgTable("notifications", {
 }, (t) => [
   index("notifications_user_id_created_at_idx").on(t.userId, desc(t.createdAt)),
   index("notifications_user_id_unread_idx").on(t.userId).where(sql`${t.readAt} IS NULL`),
-  check("notifications_type_check", sql`${t.type} IN ('like', 'comment', 'follow', 'new_world')`),
+  check("notifications_type_check", sql`${t.type} IN ('like', 'comment', 'follow', 'new_world', 'collaborator_added')`),
 ]);
 
 // ---------------------------------------------------------------------------
@@ -516,5 +521,44 @@ export const worldVersionsRelations = relations(worldVersions, ({ one }) => ({
     fields: [worldVersions.id],
     references: [worlds.publishedVersionId],
     relationName: "publishedVersion",
+  }),
+}));
+
+// ---------------------------------------------------------------------------
+// world_collaborators
+// Slice 9.2 — users invited by a world owner to edit the world.
+// Composite PK on (world_id, user_id). Both FKs CASCADE DELETE.
+// addedById uses ON DELETE SET NULL — preserves the row if the inviting admin
+// is deleted (the invitation stays valid).
+// role CHECK: only 'editor' in v1; column left text (not enum) for future roles.
+// Index on user_id for "worlds I can edit" profile queries.
+// ---------------------------------------------------------------------------
+export const worldCollaborators = pgTable(
+  "world_collaborators",
+  {
+    worldId: uuid("world_id").notNull().references(() => worlds.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    role: text("role").notNull().default("editor"),
+    addedAt: timestamp("added_at").defaultNow().notNull(),
+    addedById: uuid("added_by_id").references(() => users.id, { onDelete: "set null" }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.worldId, t.userId] }),
+    index("world_collaborators_user_id_idx").on(t.userId),
+    check("world_collaborators_role_check", sql`${t.role} IN ('editor')`),
+  ]
+);
+
+export const worldCollaboratorsRelations = relations(worldCollaborators, ({ one }) => ({
+  world: one(worlds, { fields: [worldCollaborators.worldId], references: [worlds.id] }),
+  user: one(users, {
+    fields: [worldCollaborators.userId],
+    references: [users.id],
+    relationName: "worldCollaboratorsUser",
+  }),
+  addedBy: one(users, {
+    fields: [worldCollaborators.addedById],
+    references: [users.id],
+    relationName: "worldCollaboratorsAddedBy",
   }),
 }));

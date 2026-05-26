@@ -441,7 +441,87 @@ describe("POST /api/worlds/[id]/scene-graph/ops — invalid op (400 with opIndex
 });
 
 // ---------------------------------------------------------------------------
-// Block F — Happy path
+// Block F — Editor (non-owner collaborator) access
+// ---------------------------------------------------------------------------
+
+describe("POST /api/worlds/[id]/scene-graph/ops — editor collaborator", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it("editor (non-owner collaborator) can post ops and authorId reflects the editor's id", async () => {
+    // The caller is NOT the world owner — this is a collaborator with editor role.
+    // requireWorldRole is mocked to return role:"editor" (the gate has been relaxed
+    // from owner-only to editor-or-above in Chunk 4).
+    const EDITOR_CLERK_ID = "clerk_editor_xyz";
+    const EDITOR_DB_ID = "db-uuid-editor-001";
+    const OWNER_DB_ID = "db-uuid-owner-999"; // world.userId — DIFFERENT from editor
+
+    const editorDbUser = {
+      id: EDITOR_DB_ID,
+      clerkId: EDITOR_CLERK_ID,
+      username: "editor",
+      email: "editor@example.com",
+      avatarUrl: null,
+      createdAt: new Date("2026-01-01"),
+      tosAcceptedAt: null,
+    };
+
+    mockAuth.mockResolvedValue({ userId: EDITOR_CLERK_ID });
+    mockCurrentUser.mockResolvedValue({
+      id: EDITOR_CLERK_ID,
+      username: "editor",
+      emailAddresses: [{ emailAddress: "editor@example.com" }],
+      imageUrl: null,
+    });
+    mockRequireActiveDbUser.mockResolvedValue(editorDbUser);
+
+    // requireWorldRole returns editor role — caller is a collaborator, NOT the owner
+    mockRequireWorldRole.mockResolvedValue({
+      world: { id: WORLD_UUID, userId: OWNER_DB_ID }, // world.userId is owner's id, not editor's
+      role: "editor",
+    });
+
+    // Transaction: call 1 = base version, call 2 = latest (same row = no conflict)
+    mockTxFindFirst
+      .mockResolvedValueOnce(BASE_VERSION_ROW)
+      .mockResolvedValueOnce(BASE_VERSION_ROW);
+    mockTransaction.mockImplementation(
+      async (callback: (tx: unknown) => Promise<unknown>) =>
+        callback(makeFakeTx())
+    );
+
+    const res = await callPost(WORLD_UUID, {
+      baseVersionId: BASE_VERSION_UUID,
+      ops: [VALID_OP],
+    });
+
+    // 200 happy path — editor gate passes (editor rank >= editor)
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.versionId).toBe(NEW_VERSION_UUID);
+    expect(body.sceneGraph).toBeTruthy();
+
+    // world_versions row must be authored by the EDITOR, not the world owner.
+    // This confirms the route passes dbUser.id (the collaborator) as authorId,
+    // not world.userId (the owner).
+    expect(mockTxInsert).toHaveBeenCalledOnce();
+    expect(mockTxInsert).toHaveBeenCalledWith(
+      worldVersions,
+      expect.objectContaining({
+        authorId: EDITOR_DB_ID, // editor's id — not the owner's id
+        worldId: WORLD_UUID,
+      })
+    );
+
+    // worlds.scene_graph update must also be called
+    expect(mockTxUpdate).toHaveBeenCalledWith(
+      worlds,
+      expect.objectContaining({ sceneGraph: expect.any(Object) })
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Block G — Happy path
 // ---------------------------------------------------------------------------
 
 describe("POST /api/worlds/[id]/scene-graph/ops — happy path", () => {

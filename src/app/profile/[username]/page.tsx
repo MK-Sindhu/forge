@@ -9,6 +9,7 @@ import { users, follows } from "@/db/schema";
 import { WorldCardMedia } from "@/components/world-card-media/WorldCardMedia";
 import { FollowButton } from "@/components/follow-button/FollowButton";
 import { TagChip } from "@/components/tag-chip/TagChip";
+import { EditableWorldsSection } from "@/components/profile/EditableWorldsSection";
 
 // ---------------------------------------------------------------------------
 // generateMetadata — per-profile OG + Twitter Card tags
@@ -229,6 +230,13 @@ export default async function ProfilePage({
           })}
         </ul>
       )}
+
+      {/* Worlds where this user is a collaborator (editor role) */}
+      <EditableWorldsSection
+        username={user.username}
+        userId={user.id}
+        isSelf={isOwnProfile}
+      />
     </main>
   );
 }

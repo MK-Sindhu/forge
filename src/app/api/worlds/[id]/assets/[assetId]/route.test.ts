@@ -246,6 +246,64 @@ describe("DELETE /api/worlds/[id]/assets/[assetId] — 409 strict integrity", ()
   });
 });
 
+describe("DELETE /api/worlds/[id]/assets/[assetId] — editor collaborator", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it("editor (non-owner collaborator) can DELETE an asset with no integrity conflict", async () => {
+    // Caller is a collaborator with editor role, NOT the world owner.
+    // requireWorldRole is mocked to return role:"editor" (Chunk 4 relaxed the
+    // DELETE gate from owner-only to editor-or-above).
+    const EDITOR_CLERK_ID = "clerk_editor_xyz";
+    const EDITOR_DB_ID = "db-uuid-editor-001";
+    const OWNER_DB_ID = "db-uuid-owner-999"; // world.userId — DIFFERENT from editor
+
+    const editorDbUser = {
+      id: EDITOR_DB_ID,
+      clerkId: EDITOR_CLERK_ID,
+      username: "editor",
+      email: "editor@example.com",
+      avatarUrl: null,
+      createdAt: new Date("2026-01-01"),
+      tosAcceptedAt: null,
+    };
+
+    mockAuth.mockResolvedValue({ userId: EDITOR_CLERK_ID });
+    mockCurrentUser.mockResolvedValue({
+      id: EDITOR_CLERK_ID,
+      username: "editor",
+      emailAddresses: [{ emailAddress: "editor@example.com" }],
+      imageUrl: null,
+    });
+    mockRequireActiveDbUser.mockResolvedValue(editorDbUser);
+    // requireWorldRole passes — caller is an editor collaborator
+    mockRequireWorldRole.mockResolvedValue({
+      world: { id: WORLD_UUID, userId: OWNER_DB_ID }, // owner's id ≠ editor's id
+      role: "editor",
+    });
+    // No integrity conflict — asset exists, no version references it
+    mockTransaction.mockImplementation(
+      async (callback: (tx: unknown) => Promise<unknown>) =>
+        callback(makeFakeTx(true, []))
+    );
+    mockDeleteObject.mockResolvedValue(undefined);
+
+    const res = await callDelete(WORLD_UUID, ASSET_UUID);
+
+    // 200 — editor gate passes, asset deleted
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.deleted).toBe(true);
+    expect(body.assetId).toBe(ASSET_UUID);
+
+    // Best-effort R2 cleanup must have been attempted with the correct key
+    expect(mockDeleteObject).toHaveBeenCalledOnce();
+    expect(mockDeleteObject).toHaveBeenCalledWith({
+      bucket: "glb",
+      objectKey: EXPECTED_OBJECT_KEY,
+    });
+  });
+});
+
 describe("DELETE /api/worlds/[id]/assets/[assetId] — happy path (200)", () => {
   beforeEach(() => vi.resetAllMocks());
 

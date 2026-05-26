@@ -20,6 +20,7 @@ import { TagChip } from "@/components/tag-chip/TagChip";
 import { ViewTracker } from "@/components/view-tracker/ViewTracker";
 import { ConvertToSceneGraphButton } from "@/components/convert-to-scene-graph/ConvertToSceneGraphButton";
 import { VersionHistorySection } from "@/components/version-history/VersionHistorySection";
+import { CollaboratorsSection } from "@/components/collaborators/CollaboratorsSection";
 
 // ---------------------------------------------------------------------------
 // generateMetadata — per-world OG + Twitter Card tags
@@ -245,6 +246,13 @@ export default async function WorldPage(
           )}
         </>
       )}
+
+      {/* Collaborators — visible to everyone; owner sees invite/remove, collaborator sees leave */}
+      <CollaboratorsSection
+        worldId={world.id}
+        isOwner={currentUserDbId === world.author.id}
+        currentUserId={currentUserDbId}
+      />
     </main>
   );
 }

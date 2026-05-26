@@ -72,6 +72,11 @@ src/
     │   └── ConvertToSceneGraphButton.tsx  # client component; Phase 2; owner-only; props: worldId; POST /api/worlds/[id]/convert-to-scene-graph → router.refresh() on 200 or 409; shows "Converting…" + spinner while in-flight; inline error on failure; understated card panel below the world viewer
     ├── version-history/
     │   └── VersionHistorySection.tsx      # client component; Phase 2; owner-only; props: worldId, publishedVersionId, isOwner; fetches GET /api/worlds/[id]/versions on mount; lists versions with status pills (Currently published / Published / Draft); owner Publish button → POST /api/worlds/[id]/versions/[v]/publish (optimistic update + revert on failure); "Load more" cursor pagination; skeleton loading + inline error + empty state
+    ├── collaborators/
+    │   ├── CollaboratorsSection.tsx       # client component; Slice 9.2; visible to all on /world/[id]; props: worldId, isOwner, currentUserId; fetches GET /api/worlds/[id]/collaborators on mount; renders owner row (green Owner badge) + collaborator rows (cyan Editor badge + addedBy meta + relative time); owner sees Remove button per row; collaborator sees Leave button on their own row; "Invite collaborator" button at bottom (owner-only) opens InviteCollaboratorDialog; skeleton loading + inline error + retry; empty state with helper text for owner; window.confirm before remove/leave; on Leave success → router.push back to world page
+    │   └── InviteCollaboratorDialog.tsx   # client component; Slice 9.2; props: worldId, open, onClose, onSuccess; native <dialog> element with showModal/close; backdrop click closes; ESC closes (cancel event listener); form with @ prefix input, autofocus on open; POST /api/worlds/[id]/collaborators with { username }; inline error messages per status code (404: no user, 409+existing: already collab, 409 no existing: owner conflict, 5xx: generic); loading spinner in Invite button; aria-modal + aria-labelledby + aria-describedby on error; focus trap via native <dialog>; no new deps
+    ├── profile/
+    │   └── EditableWorldsSection.tsx      # server component; Slice 9.2; props: username, userId, isSelf; queries worldCollaborators for worlds where userId is a collaborator; renders nothing when empty; heading adapts ("Worlds you can edit" vs "Worlds @username can edit"); thumbnail grid mirroring the owned-worlds grid; reuses WorldCardMedia + TagChip; limit 50, desc(addedAt) order
     └── editor/
         ├── editor-store.ts               # Phase 2 (8.4 Chunk A+D); pure logic — no UI; Zustand v5 store for the in-browser world editor; exports useEditorStore (React-bound) + createEditorStore() (vanilla factory for tests); holds scene graph + selection + gizmo mode + properties tab + pending ops + undo/redo stacks + save lifecycle state; addObject() now returns the new object id (string) — Chunk D change
         ├── EditorShell.tsx               # Phase 2 (8.4 Chunk B+D+E+F); client component; full-viewport 3-panel editor layout (asset panel left, viewport center, properties right) + phone gate; calls useEditorStore.initialize() on mount; calls useAutosave(worldId) to start the 2s autosave interval; renders PhoneNotice + EditorTopBar + panels + EditorStatusBar; hidden below md breakpoint; passes worldId + initialAssets to AssetPanel (Chunk D); imports PropertiesPanel (Chunk E, replaces PropertiesPanelPlaceholder)
@@ -103,9 +108,9 @@ src/
 |---|---|---|---|---|
 | `/` | `src/app/page.tsx` | Server | Feed (3 tabs via `?tab=`: Recent, Trending, Following). Cards show up to 3 tag chips + `+N more` overflow. Trending and Recent are public (no auth gate); Following redirects to sign-in if unauthenticated. **Onboarding:** `<WelcomeCallout />` renders above the tab bar for "fresh" signed-in users (no uploads + no follows). The `isFreshUser` flag is computed via two cheap 1-row DB probes (worlds + follows) immediately after the `currentDbUserId` lookup. Callout disappears automatically once user uploads or follows. `ContextualEmptyState` is now actionable: Following tab has "Browse Trending" + "Search worlds" buttons; Recent tab has "Upload your first world" button (signed-in only). | 1, 3, 4, 5, 7.1, 7.4, launch-ops |
 | `/search` | `src/app/search/page.tsx` | Server (public) | Full-text search results. Reads `?q=` and/or `?tag=`. Three branches: empty state (neither), FTS query (`q` only), tag filter (`tag` only), intersection (both). Direct DB query — no API route. Cap 50 results. `search_vector` is Postgres-managed (trigger-populated, not in Drizzle schema). `generateMetadata` produces dynamic title/description for shareable search URLs (e.g. `#mytag · FORGE`, `Search: "robots" · FORGE`). | 7.2, launch-polish |
-| `/world/[id]` | `src/app/world/[id]/page.tsx` | Server | World viewer page (3D + metadata + carousel + updates + comments + actions). Tag chips row below title. `generateMetadata` produces per-world OG + Twitter Card tags (title, description, thumbnail image, author). Direct DB query for metadata fetch (lean 3-column query — does not re-call the API route). **Viewer branch (9.1 Chunk 7):** if `world.sceneGraph !== null`, renders `<WorldVisitorClient sceneGraph assets ariaLabel />` (walk-mode visitor experience); otherwise falls back to `<WorldViewerClient glbUrl ariaLabel />` (legacy single-GLB path). All existing worlds have `sceneGraph: null` and continue to render via the legacy path unchanged. **Owner-only Phase 2 tools (8.3 Chunk C):** if owner + legacy world (`sceneGraph === null`) → `<ConvertToSceneGraphButton>`; if owner + scene-graph world → `<VersionHistorySection>`. Non-owners see neither. The `GET /api/worlds/[id]` response now includes `publishedVersionId` (null for legacy worlds). | 1, 2, 3, 4, 5, 7.1, 8.1, 8.3, 9.1, launch-polish |
-| `/world/[id]/edit` | `src/app/world/[id]/edit/page.tsx` | Server (owner-gated) | In-browser world editor. Auth + owner gates (redirect to sign-in if unauthenticated; inline forbidden page if not owner). Legacy worlds (sceneGraph=null) get an inline "convert first" page with a link back. Fetches latest `world_versions` row (inline DB query, no API round-trip) + up to 100 `world_assets` rows. Parses `SceneGraphV1` defensively (inline error page if parse fails). Renders `<EditorShell>` with serializable props. `generateMetadata` returns `"Editing: {title}"` title + `robots: noindex`. No OG image. | 8.4 Chunk B |
-| `/profile/[username]` | `src/app/profile/[username]/page.tsx` | Server | Profile (avatar, follower/following counts, world grid). Cards show up to 3 tag chips + `+N more` overflow. `generateMetadata` produces per-profile OG + Twitter Card tags (username, world count, avatar image). | 1, 3, 7.1, launch-polish |
+| `/world/[id]` | `src/app/world/[id]/page.tsx` | Server | World viewer page (3D + metadata + carousel + updates + comments + actions). Tag chips row below title. `generateMetadata` produces per-world OG + Twitter Card tags (title, description, thumbnail image, author). Direct DB query for metadata fetch (lean 3-column query — does not re-call the API route). **Viewer branch (9.1 Chunk 7):** if `world.sceneGraph !== null`, renders `<WorldVisitorClient sceneGraph assets ariaLabel />` (walk-mode visitor experience); otherwise falls back to `<WorldViewerClient glbUrl ariaLabel />` (legacy single-GLB path). All existing worlds have `sceneGraph: null` and continue to render via the legacy path unchanged. **Owner-only Phase 2 tools (8.3 Chunk C):** if owner + legacy world (`sceneGraph === null`) → `<ConvertToSceneGraphButton>`; if owner + scene-graph world → `<VersionHistorySection>`. Non-owners see neither. The `GET /api/worlds/[id]` response now includes `publishedVersionId` (null for legacy worlds). **Slice 9.2:** `<CollaboratorsSection worldId isOwner currentUserId />` rendered below the Phase 2 tools, visible to all (public). | 1, 2, 3, 4, 5, 7.1, 8.1, 8.3, 9.1, 9.2, launch-polish |
+| `/world/[id]/edit` | `src/app/world/[id]/edit/page.tsx` | Server (owner OR editor-gated) | In-browser world editor. Auth + role gates (redirect to sign-in if unauthenticated; inline "no edit access" page if not owner or editor collaborator). Uses `getWorldRoleForUser()` from `world-permissions.ts` — returns a discriminated union so no `NextResponse` is needed in a server component. Legacy worlds (sceneGraph=null) get an inline "convert first" page with a link back. Fetches latest `world_versions` row (inline DB query, no API round-trip) + up to 100 `world_assets` rows. Parses `SceneGraphV1` defensively (inline error page if parse fails). Renders `<EditorShell>` with serializable props. `generateMetadata` returns `"Editing: {title}"` title + `robots: noindex`. No OG image. | 8.4 Chunk B, 9.2 C4 |
+| `/profile/[username]` | `src/app/profile/[username]/page.tsx` | Server | Profile (avatar, follower/following counts, world grid). Cards show up to 3 tag chips + `+N more` overflow. `generateMetadata` produces per-profile OG + Twitter Card tags (username, world count, avatar image). **Slice 9.2:** `<EditableWorldsSection username userId isSelf />` rendered below the owned-worlds grid; renders nothing when the user has no collab worlds. | 1, 3, 7.1, 9.2, launch-polish |
 | `/upload` | `src/app/upload/page.tsx` + `UploadForm.tsx` | Client (`UploadForm`) | Multi-step upload form. Static `metadata` for browser tab clarity (`Upload a world · FORGE`). | 1, 2, launch-polish |
 | `/sign-in/[[...sign-in]]` | `src/app/sign-in/[[...sign-in]]/page.tsx` | Server (Clerk drop-in) | Clerk sign-in | 0 |
 | `/sign-up/[[...sign-up]]` | `src/app/sign-up/[[...sign-up]]/page.tsx` | Server (Clerk drop-in) | Clerk sign-up | 0 |
@@ -183,7 +188,7 @@ useEffect(() => {
 
 React 19 StrictMode intentionally unmounts + remounts components in dev. Because both the guard-check and the guard-set happen in the same synchronous tick before `fetch()` is awaited, the second mount sees `firedRef.current === true` and returns early. Setting the flag in `.then()` would leave a window where the second mount fires another fetch before the first resolves.
 
-### Notification rendering (4 type shapes)
+### Notification rendering (5 type shapes)
 
 Each notification type maps to a message string and a destination `href`. Logic lives in `NotificationList.tsx` `renderNotification()` helper:
 
@@ -193,6 +198,9 @@ Each notification type maps to a message string and a destination `href`. Logic 
 | `comment` | `@actor commented on Title: <snippet up to 80 chars>` | `/world/{worldId}#comments` |
 | `follow` | `@actor started following you` | `/profile/{actor.username}` |
 | `new_world` | `@actor published a new world: Title` | `/world/{worldId}` |
+| `collaborator_added` | `@actor added you as a collaborator on Title` | `/world/{worldId}/edit` |
+
+Note: `collaborator_added` links directly to `/world/{worldId}/edit` (not `/world/{worldId}`) — the recipient is a collaborator and can act immediately in the editor.
 
 Fallback for any unexpected type: `"New notification"` → `/`. Missing actor/world falls back gracefully (actor shown as `"Someone"`, world title as `"a world"`).
 
@@ -545,6 +553,42 @@ Pure DOM components (no R3F) that are wired into `WalkMode` in Chunk 5.
 | `src/app/search/page.tsx` | Default OG description: `"Search 3D worlds on FORGE..."` → `"Search worlds on FORGE..."` |
 
 Accessibility-critical `ariaLabel="3D world: {title}"` strings on the viewer containers were deliberately left unchanged — the "3D" qualifier is clarity for screen readers, not marketing copy.
+
+### Slice 9.2 Chunk 6 — Collaborators UI (shipped 2026-05-26)
+
+Three new components wired into `/world/[id]` and `/profile/[username]`.
+
+**`CollaboratorsSection`** (`src/components/collaborators/CollaboratorsSection.tsx`)
+- Client component. Props: `{ worldId: string; isOwner: boolean; currentUserId: string | null }`.
+- Fetches `GET /api/worlds/[id]/collaborators` on mount → `{ owner, collaborators }` state.
+- Renders owner row first (green "Owner" badge, no actions). Then each collaborator row: avatar + `@username` + cyan "Editor" badge + "added by @{addedBy} · {relative}" meta.
+- Action buttons (right side per collaborator row): owner → "Remove" button; collaborator on own row → "Leave" button; others → nothing.
+- On Remove: `window.confirm` → `DELETE /api/worlds/[id]/collaborators/{id}` → splice from local state.
+- On Leave: `window.confirm` → `DELETE` → `router.push(/world/{id})`.
+- "Invite collaborator" button at bottom (owner-only) → opens `<InviteCollaboratorDialog>`.
+- On invite success: `onSuccess(newRow)` appends to local collaborators state.
+- Skeleton loading (2 animated rows), inline error + Retry, empty state + owner helper text, action error display.
+
+**`InviteCollaboratorDialog`** (`src/components/collaborators/InviteCollaboratorDialog.tsx`)
+- Client component. Exports `CollaboratorRow` interface (shared with CollaboratorsSection).
+- Props: `{ worldId, open, onClose, onSuccess }`.
+- **Modal pattern:** native `<dialog>` element. `showModal()` / `close()` called imperatively via ref, keyed off `open` prop transitions tracked with `prevOpenRef`. No `setState` in effects (the custom lint rule requires this); form state reset via `resetForm()` called at action sites (`handleClose`, `onSuccess`).
+- Backdrop click closes (compares click coords to dialog's bounding rect). ESC closes via `cancel` event listener + `preventDefault` + `onClose()` call. Focus trapped automatically by the browser's `<dialog>` focus management.
+- `aria-modal="true"`, `aria-labelledby="invite-dialog-heading"`, `aria-describedby` on error.
+- Input: `@` prefix prefix label, autofocus via `requestAnimationFrame` on open, strips leading `@` before sending.
+- Error messages: 404 → "No user @{x}. Check the spelling." · 409+existing → "@{x} is already a collaborator." · 409 no existing → "You can't invite yourself — you're the owner." · 5xx → "Couldn't invite right now. Try again."
+- Submit button shows spinner + "Inviting…" while in-flight. Both buttons disabled during submit.
+
+**`EditableWorldsSection`** (`src/components/profile/EditableWorldsSection.tsx`)
+- **Server component** (no `"use client"`). Props: `{ username: string; userId: string; isSelf: boolean }`.
+- Queries `worldCollaborators` joined to `world` (inline DB query, no API round-trip). `limit: 50`, `desc(addedAt)`.
+- Returns `null` when there are no collab worlds — keeps profiles clean for non-collaborators.
+- Heading adapts: `isSelf` → "Worlds you can edit"; otherwise → "Worlds @{username} can edit".
+- Grid mirrors the owned-worlds grid: `WorldCardMedia` + `TagChip` chips + likes/views footer. `<h3>` (not `<h2>`) for world titles since the section has its own `<h2>` with `aria-labelledby`.
+
+**Page wiring:**
+- `/world/[id]/page.tsx` — `<CollaboratorsSection>` added below the Phase 2 owner tools (below `VersionHistorySection` / `ConvertToSceneGraphButton`). Visible to all viewers (public), not gated on `isOwner`.
+- `/profile/[username]/page.tsx` — `<EditableWorldsSection>` added below the owned-worlds grid. `isOwnProfile` passed as `isSelf`.
 
 ### Still to come (Phase 2 / Slice 9)
 

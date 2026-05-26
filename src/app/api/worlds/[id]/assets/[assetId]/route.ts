@@ -18,7 +18,7 @@
  * Errors:
  *   400 — invalid path params
  *   401 — not signed in
- *   403 — not world owner
+ *   403 — not world owner or editor
  *   404 — world not found, or asset not found on this world
  *   409 — asset is referenced in one or more world_versions rows
  *   503 — DB error
@@ -78,8 +78,8 @@ export async function DELETE(
   }
   const assetIdClean = assetIdParsed.data;
 
-  // 3. World ownership gate (also confirms world exists; returns 404 if missing)
-  const roleResult = await requireWorldRole(worldId, dbUser, "owner");
+  // 3. World role gate — owner or editor (collaborators can delete assets)
+  const roleResult = await requireWorldRole(worldId, dbUser, "editor");
   if (roleResult instanceof NextResponse) return roleResult;
 
   // 4. Capture glbUrl before transaction — we need it for post-commit R2 cleanup.

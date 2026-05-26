@@ -22,15 +22,18 @@ src/
 │   ├── uploads/sign/     # POST — presigned R2 URL (kinds: glb, thumbnail, image, video, asset)
 │   ├── worlds/           # CRUD + likes + comments + reposts + reports + updates + scene-graph API
 │   │   └── [id]/
+│   │       ├── collaborators/
+│   │       │   ├── route.ts       # GET (public) + POST (owner-only, invite collaborator, 9.2)
+│   │       │   └── [userId]/      # DELETE — remove a collaborator (owner or self, 9.2)
 │   │       ├── scene-graph/
 │   │       │   ├── route.ts   # GET — latest scene graph + version metadata (public, Phase 2)
-│   │       │   └── ops/       # POST — apply scene-graph op batch (owner-only, Phase 2, Chunk D2)
+│   │       │   └── ops/       # POST — apply scene-graph op batch (owner OR editor, Phase 2, Chunk D2, relaxed 9.2 C4)
 │   │       ├── versions/
 │   │       │   ├── route.ts   # GET — paginated version history (public, Phase 2)
 │   │       │   └── [v]/publish/  # POST — publish a specific version (owner-only, Chunk D2)
 │   │       └── assets/
-│   │           ├── route.ts       # GET (public) + POST (owner-only, record asset row, Chunk D2)
-│   │           └── [assetId]/     # DELETE — strict-integrity asset removal (owner-only, Chunk D2)
+│   │           ├── route.ts       # GET (public) + POST (owner OR editor, record asset row, Chunk D2, relaxed 9.2 C4)
+│   │           └── [assetId]/     # DELETE — strict-integrity asset removal (owner OR editor, Chunk D2, relaxed 9.2 C4)
 │   ├── users/            # Profile + follow
 │   ├── admin/            # Admin-only: reports queue, suspensions
 │   ├── comments/         # DELETE single comment
@@ -41,14 +44,15 @@ src/
 └── lib/
     ├── users.ts          # Auth helpers (getOrCreateDbUser, requireAdmin, requireActiveDbUser)
     ├── r2.ts             # R2 client (lazy-init), presigned URLs, key builders, deleteObject
-    ├── world-permissions.ts  # requireWorldRole helper (Phase 2)
+    ├── world-permissions.ts  # requireWorldRole helper (Phase 2 + Slice 9.2 collaborator lookup)
+    ├── notifications.ts      # notify() / notifyMany() best-effort helpers; NotifyInput type
     ├── scene-graph/
     │   ├── schema.ts     # SceneGraphV1 Zod schema, parseSceneGraph, emptySceneGraph
     │   └── operations.ts # Op types, applyOps reducer, OpsBatchSchema (Phase 2)
     └── format-relative.ts # "5m ago" timestamps (used by frontend too)
 ```
 
-## Database Schema (Current — 15 Tables)
+## Database Schema (Current — 16 Tables)
 
 Authoritative source: `src/db/schema.ts`. This section is a reference summary.
 
@@ -110,13 +114,15 @@ Slice 7.5. In-app notification feed. One row per notification event.
 
 Key columns: `id` (uuid PK), `user_id` (FK → users, CASCADE), `type` (text with CHECK), `actor_id` (nullable FK → users, CASCADE), `world_id` (nullable FK → worlds, CASCADE), `comment_id` (nullable FK → comments, CASCADE), `created_at`, `read_at` (null until marked read).
 
-`type` CHECK constraint: `IN ('like', 'comment', 'follow', 'new_world')`.
+`type` CHECK constraint: `IN ('like', 'comment', 'follow', 'new_world', 'collaborator_added')`.
 
 Indexes:
 - `notifications_user_id_created_at_idx` — `(user_id, created_at DESC)` for the feed query
 - `notifications_user_id_unread_idx` — PARTIAL `(user_id) WHERE read_at IS NULL` for the cheap unread-badge count
 
 Drizzle relations: `recipient` (→ users, `relationName: "notificationRecipient"`), `actor` (→ users, `relationName: "notificationActor"`), `world` (→ worlds), `comment` (→ comments). Back-relations on `usersRelations`: `receivedNotifications` and `actedNotifications`.
+
+`collaborator_added` was added in Slice 9.2 to this type list: fired when a world owner invites someone as a collaborator. No `commentId` for this type. The `worldId` is the world they were invited to.
 
 Self-notifications (userId === actorId) are suppressed in the `notify()` helper — no DB CHECK for this.
 
@@ -146,6 +152,19 @@ Indexes:
 
 Drizzle relations: `world: one(worlds, { relationName: "worldVersion" })`, `author: one(users)`, `parent: one(worldVersions, { relationName: "parent" })` (self-reference), `publishedFor: one(worlds, { relationName: "publishedVersion" })`.
 
+### `world_collaborators`
+Slice 9.2. Users invited by a world owner to co-edit a world.
+
+Composite PK on `(world_id, user_id)`. Both `world_id` and `user_id` FKs are CASCADE DELETE. `added_by_id` (nullable FK → users) uses ON DELETE SET NULL — preserves the row if the inviting user is deleted (the invitation stays valid).
+
+Key columns: `world_id`, `user_id`, `role` (text, default `'editor'`), `added_at` (timestamp), `added_by_id` (nullable).
+
+CHECK constraint `world_collaborators_role_check`: `role IN ('editor')` — only one role in v1; column stays text for future roles.
+
+Index `world_collaborators_user_id_idx` on `user_id` for "worlds I can edit" profile queries.
+
+Drizzle relations: `world: one(worlds)`, `user: one(users, { relationName: "worldCollaboratorsUser" })`, `addedBy: one(users, { relationName: "worldCollaboratorsAddedBy" })`. Back-relations on `usersRelations`: `worldCollaboratorsUser` and `worldCollaboratorsAddedBy` (named to resolve dual-FK ambiguity). Back-relation on `worldsRelations`: `collaborators: many(worldCollaborators)`.
+
 ### `worlds.search_vector` (DB-only, not in Drizzle schema)
 Slice 7.2. `tsvector` column added directly to the `worlds` table via migration `0007_slice7_search.sql`. **This column is intentionally absent from `src/db/schema.ts`.** It is Postgres-managed — triggers populate and maintain it automatically. Application code never writes to it directly. Drizzle queries against `worlds` simply don't see this column (no TS errors, no runtime errors). Queries that need to search use raw `sql` template literals: `sql\`search_vector @@ websearch_to_tsquery('english', ${q})\``.
 
@@ -161,7 +180,33 @@ Three helpers, used everywhere. Pick the right one for the situation.
 
 ## World Permission Helper (`src/lib/world-permissions.ts`)
 
-Phase-3-ready role gate for world-scoped write endpoints.
+Two exported entry points for world-scoped auth:
+
+### `getWorldRoleForUser` (Slice 9.2 Chunk 4 — for server components)
+
+```ts
+getWorldRoleForUser(
+  worldId: string,
+  dbUser: DbUser
+): Promise<WorldRoleResult>
+```
+
+Returns a discriminated union — no `NextResponse`, safe for server-component pages:
+- `{ kind: "ok", world: WorldRow, role: WorldRole }` — success
+- `{ kind: "not-found" }` — world does not exist
+- `{ kind: "forbidden" }` — user has no role on this world
+- `{ kind: "db-error" }` — DB unavailable
+
+**Usage in pages:**
+```ts
+const roleResult = await getWorldRoleForUser(worldId, dbUser);
+if (roleResult.kind === "not-found") notFound();
+if (roleResult.kind === "db-error") redirect(`/world/${id}`);
+if (roleResult.kind === "forbidden") return <ForbiddenView />;
+const { world, role } = roleResult; // kind === "ok"
+```
+
+### `requireWorldRole` (for route handlers)
 
 ```ts
 requireWorldRole(
@@ -171,20 +216,25 @@ requireWorldRole(
 ): Promise<WorldWithRole | NextResponse>
 ```
 
-Returns `{ world: WorldRow, role: WorldRole }` on success. Returns `NextResponse` with status 404 (world missing), 403 (not the owner or insufficient role), or 503 (DB error) on failure. Callers check `instanceof NextResponse` before destructuring.
+Thin wrapper around `getWorldRoleForUser`. Returns `{ world: WorldRow, role: WorldRole }` on success. Returns `NextResponse` with status 404 (world missing), 403 (not authorized or insufficient role), or 503 (DB error) on failure. Callers check `instanceof NextResponse` before destructuring.
 
-Phase 2: only the `"owner"` role exists (world.userId === dbUser.id). Phase 3 will extend the internal role-lookup block with a `world_collaborators` query; all call sites stay unchanged.
+**Role lookup order:**
+1. `world.userId === dbUser.id` → role = `"owner"`
+2. `world_collaborators` row for `(worldId, dbUser.id)` exists with `role = 'editor'` → role = `"editor"`
+3. Neither → `{ kind: "forbidden" }` → 403
 
-`requiredRole` is the **minimum** acceptable role (`owner >= editor >= viewer`).
+The internal `getCollaboratorRole(worldId, userId)` private function performs the collaborator lookup.
 
-**Usage pattern:**
+`requiredRole` is the **minimum** acceptable role (`owner >= editor >= viewer`). Only `"editor"` exists in v1; `"viewer"` is reserved for future use.
+
+**Usage pattern in route handlers:**
 ```ts
-const roleResult = await requireWorldRole(worldId, dbUser, "owner");
+const roleResult = await requireWorldRole(worldId, dbUser, "editor");
 if (roleResult instanceof NextResponse) return roleResult;
 const { world, role } = roleResult;
 ```
 
-Exported types: `WorldRole`, `WorldRow` (`typeof worlds.$inferSelect`), `WorldWithRole`.
+Exported types: `WorldRole`, `WorldRow` (`typeof worlds.$inferSelect`), `WorldWithRole`, `WorldRoleResult`.
 
 ### Suspension guard pattern
 
@@ -277,11 +327,14 @@ Verified by walking `src/app/api/` (15 `route.ts` files as of Slice 6). `/api/fe
 | GET | `/api/worlds/[id]/scene-graph` | public | Latest scene graph for a world + version metadata (`versionId`, `versionNumber`, `status`, `publishedVersionId`). Defensive parse — returns `sceneGraph: null` on parse failure rather than 500. Legacy worlds (no `world_versions` rows) return all version fields as null. | 8.2 |
 | GET | `/api/worlds/[id]/versions` | public | Cursor-paginated list of `world_versions` rows (newest first); excludes `sceneGraph` JSONB — too large for list. Each row includes `author: { id, username, avatarUrl }`. | 8.2 |
 | GET | `/api/worlds/[id]/assets` | public | All `world_asset` rows for a world (newest first, capped at 100); maps `glbSizeBytes` → `sizeBytes` in response. | 8.2 |
-| POST | `/api/worlds/[id]/scene-graph/ops` | required, owner | Apply a batch of scene-graph ops (`OpsBatchSchema`) on top of `baseVersionId`. Returns new `{ versionId, versionNumber, sceneGraph }`. 409 with `currentVersion` body on conflict. 400 with `opIndex` on invalid op. | 8.2 D2 |
+| POST | `/api/worlds/[id]/scene-graph/ops` | required, owner OR editor | Apply a batch of scene-graph ops (`OpsBatchSchema`) on top of `baseVersionId`. Returns new `{ versionId, versionNumber, sceneGraph }`. 409 with `currentVersion` body on conflict. 400 with `opIndex` on invalid op. | 8.2 D2, 9.2 C4 |
 | POST | `/api/worlds/[id]/versions/[v]/publish` | required, owner | Mark a specific version as published; sets `worlds.published_version_id`. Idempotent. | 8.2 D2 |
-| POST | `/api/worlds/[id]/assets` | required, owner | Record a `world_assets` row after client has PUT the file to R2. HEADs R2 to verify upload + size; 400 on mismatch. Returns 201 `{ id, name, glbUrl, sizeBytes, createdAt }`. | 8.2 D2 |
-| DELETE | `/api/worlds/[id]/assets/[assetId]` | required, owner | Strict-integrity delete: 409 if any `world_versions.scene_graph` references the asset. Post-commit best-effort R2 cleanup. Returns `{ deleted: true, assetId }`. | 8.2 D2 |
+| POST | `/api/worlds/[id]/assets` | required, owner OR editor | Record a `world_assets` row after client has PUT the file to R2. HEADs R2 to verify upload + size; 400 on mismatch. Returns 201 `{ id, name, glbUrl, sizeBytes, createdAt }`. | 8.2 D2, 9.2 C4 |
+| DELETE | `/api/worlds/[id]/assets/[assetId]` | required, owner OR editor | Strict-integrity delete: 409 if any `world_versions.scene_graph` references the asset. Post-commit best-effort R2 cleanup. Returns `{ deleted: true, assetId }`. | 8.2 D2, 9.2 C4 |
 | POST | `/api/worlds/[id]/convert-to-scene-graph` | required, owner | Convert a legacy GLB-only world to a scene-graph world. Reuses existing `glb_url` — no upload or file copy. Inserts a `world_assets` row, builds a 1-object `SceneGraphV1` wrapping the existing GLB, inserts a `world_versions` row (`status=published`, `versionNumber=1`), and sets `worlds.scene_graph` + `worlds.published_version_id`. Returns `{ worldId, sceneGraph, versionId, versionNumber, assetId }`. 409 if already converted. Idempotent in the sense that a second call returns 409 — the first call cannot be undone via API. See `docs/scene-graph-api.md` §10.a for the full conversion flow. | 8.3 |
+| GET | `/api/worlds/[id]/collaborators` | public | Returns `{ owner: { id, username, avatarUrl }, collaborators: [{ id, username, avatarUrl, role, addedAt, addedBy: { id, username } \| null }] }`. `collaborators` capped at 50. 404 if world missing. | 9.2 |
+| POST | `/api/worlds/[id]/collaborators` | required, owner | Invite a user (by `username`) as an editor collaborator. Body: `{ username: string(1..80) }`. Runs in a transaction: looks up target user by username (404 if not found), checks owner conflict (409), checks already-a-collaborator (409 — includes the existing row in response), inserts `world_collaborators` row. Post-commit best-effort `notify({ type: "collaborator_added" })` to the invited user. Returns 201 `{ id, username, avatarUrl, role, addedAt, addedBy: { id, username } }`. | 9.2 |
+| DELETE | `/api/worlds/[id]/collaborators/[userId]` | required, owner OR self-collaborator | Remove a collaborator. Owner may remove anyone; a collaborator may self-remove. Fetches the world (404 if missing), checks caller is owner or self (403 otherwise), deletes the `world_collaborators` row (404 if not a collaborator). Returns `{ removed: true, worldId, userId }`. No notification on removal. | 9.2 |
 
 ## CLI Scripts
 
@@ -612,7 +665,7 @@ Signatures:
 - `notify(input: NotifyInput): Promise<void>` — inserts a single notification row; catches and swallows all DB errors
 - `notifyMany(inputs: NotifyInput[]): Promise<void>` — bulk insert; catches and swallows all DB errors
 
-`NotifyInput`: `{ userId: string; type: "like"|"comment"|"follow"|"new_world"; actorId?: string|null; worldId?: string|null; commentId?: string|null; }`
+`NotifyInput`: `{ userId: string; type: "like"|"comment"|"follow"|"new_world"|"collaborator_added"; actorId?: string|null; worldId?: string|null; commentId?: string|null; }` (type union updated in 9.2 to include `"collaborator_added"`)
 
 ### Self-notification suppression
 

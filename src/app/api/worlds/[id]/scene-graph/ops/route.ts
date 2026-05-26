@@ -21,7 +21,7 @@
  * Errors:
  *   400 — invalid body, or OperationError (with opIndex)
  *   401 — not signed in
- *   403 — not world owner
+ *   403 — not world owner or editor
  *   404 — world or baseVersionId not found
  *   409 — version conflict (body includes currentVersion for rebase)
  *   503 — DB error
@@ -93,8 +93,8 @@ export async function POST(
   }
   const worldId = idParsed.data;
 
-  // 3. World ownership gate
-  const roleResult = await requireWorldRole(worldId, dbUser, "owner");
+  // 3. World role gate — owner or editor (collaborators can edit)
+  const roleResult = await requireWorldRole(worldId, dbUser, "editor");
   if (roleResult instanceof NextResponse) return roleResult;
 
   // 4. Parse + validate body

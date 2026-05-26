@@ -104,6 +104,7 @@ Current migrations:
 0009_slice7_notifications.sql  ← adds notifications table (user_id, type CHECK, actor/world/comment nullable FKs, read_at) + composite index + partial index WHERE read_at IS NULL
 0010_phase2_scene_graph_foundation.sql  ← Phase 2.1: adds worlds.scene_graph (jsonb, nullable) + worlds.published_version_id (uuid, nullable FK → world_versions); creates world_assets + world_versions tables with FK constraints + CHECK constraints + indexes
 0011_phase2_scene_graph_api.sql         ← Phase 2.2: adds world_versions_world_id_status_idx + world_versions_parent_version_id_idx
+0012_slice9_world_collaborators.sql     ← Slice 9.2: creates world_collaborators table (composite PK world_id+user_id, role CHECK 'editor', added_by_id ON DELETE SET NULL, index on user_id); extends notifications.type CHECK to include 'collaborator_added'
 ```
 
 **Note on `0007_slice7_search.sql`:** This migration defines three Postgres functions (`worlds_search_vector_build`, `worlds_search_vector_trigger_fn`, `world_tags_search_vector_trigger_fn`) and two triggers (`worlds_search_vector_trigger` BEFORE on `worlds`, `world_tags_search_vector_trigger` AFTER on `world_tags`). When applying to production, all three functions and both triggers must land cleanly — verify with `\df` and `\dT` in psql or a `SELECT proname FROM pg_proc WHERE proname LIKE 'worlds_%';` query after the migration runs.
@@ -200,8 +201,8 @@ Run anytime to verify infra state:
 npm run build            # Clean build
 npm test                 # 518 tests pass
 npm run db:smoke         # All tables present, current row counts (scripts/smoke.ts)
-                         # Note: smoke.ts queries 9 specific tables; DB has 15 total as of Phase 2.1
-                         # Use verify-8-1-schema.ts (or psql \dt) to confirm full table count
+                         # Note: smoke.ts queries 9 specific tables; DB has 16 total as of Slice 9.2
+                         # Use psql \dt or information_schema.tables to confirm full table count
 git status               # Clean tree
 git log --oneline -5     # Recent commits
 ```

@@ -10,7 +10,7 @@ import { formatRelative } from "@/lib/format-relative";
 // ---------------------------------------------------------------------------
 export interface NotificationItem {
   id: string;
-  type: "like" | "comment" | "follow" | "new_world";
+  type: "like" | "comment" | "follow" | "new_world" | "collaborator_added";
   createdAt: string;
   readAt: string | null;
   actor: { id: string; username: string; avatarUrl: string | null } | null;
@@ -88,6 +88,18 @@ function renderNotification(n: NotificationItem): {
           </>
         ),
         href: n.world ? `/world/${n.world.id}` : "/",
+      };
+    case "collaborator_added":
+      return {
+        message: (
+          <>
+            <span className="font-semibold">{actorName}</span> added you as a
+            collaborator on{" "}
+            <span className="font-semibold">{worldTitle}</span>
+          </>
+        ),
+        // Send collaborators straight to the editor — they can act immediately.
+        href: n.world ? `/world/${n.world.id}/edit` : "/",
       };
     default:
       return { message: "New notification", href: "/" };

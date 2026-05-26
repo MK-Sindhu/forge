@@ -19,7 +19,7 @@ import { notifications } from "@/db/schema";
 
 export type NotifyInput = {
   userId: string;   // recipient
-  type: "like" | "comment" | "follow" | "new_world";
+  type: "like" | "comment" | "follow" | "new_world" | "collaborator_added";
   actorId?: string | null;
   worldId?: string | null;
   commentId?: string | null;
