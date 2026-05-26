@@ -338,6 +338,7 @@ describe("GET /api/worlds/[id] — Success", () => {
       "isRepostedByCurrentUser",
       // Phase 2 additions
       "sceneGraph",
+      "publishedVersionId",
       "assets",
     ]);
     const actualKeys = new Set(Object.keys(body));

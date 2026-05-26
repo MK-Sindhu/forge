@@ -127,7 +127,7 @@ curl -s -X POST "https://forge-black-eta.vercel.app/api/worlds/$WORLD_ID/version
 
 ## 3. Operation type reference
 
-All operations are members of the `SceneGraphOp` discriminated union, keyed on the `"op"` field. Source: [`src/lib/scene-graph/operations.ts`](../src/lib/scene-graph/operations.ts).
+All 9 operations are members of the `SceneGraphOp` discriminated union, keyed on the `"op"` field. Source: [`src/lib/scene-graph/operations.ts`](../src/lib/scene-graph/operations.ts).
 
 A batch is wrapped in `OpsBatchSchema`:
 
@@ -210,7 +210,39 @@ Patch one or more fields on an existing object. `id` and `assetId` are immutable
 
 ---
 
-### 3.3 `delete_object`
+### 3.3 `set_object_asset`
+
+Swap an object's asset in-place, preserving its `id`, `name`, `position`, `rotation`, and `scale`.
+
+Use this for identity-preserving asset replacement (folder-watcher CLI, future "replace asset" UI). For transform/name changes, use `update_object`. To remove an object entirely and add a different one, use `delete_object` + `add_object`.
+
+**TypeScript / Zod shape:**
+```ts
+{
+  op: "set_object_asset",
+  id: string,       // Object id whose asset is being swapped (required, min 1 char)
+  assetId: string,  // UUID — the new asset to point to
+}
+```
+
+**JSON example:**
+```json
+{
+  "op": "set_object_asset",
+  "id": "obj_a1b2c3d4",
+  "assetId": "b2c3d4e5-f6a7-8901-bcde-f01234567890"
+}
+```
+
+**Invariants enforced:**
+- Throws `OperationError` if `id` is not found in the current `objects` array.
+- All other fields on the object (`name`, `position`, `rotation`, `scale`) are unchanged.
+
+**Gotcha — assetId is not validated against `world_assets`:** The reducer does not verify the `assetId` references an existing `world_assets` row. The route layer will fail with 503 on FK violation at insert time. Clients SHOULD verify the `assetId` is in `GET /api/worlds/[id]/assets` before posting the op.
+
+---
+
+### 3.5 `delete_object`
 
 Remove an object from the scene by id.
 
@@ -235,7 +267,7 @@ Remove an object from the scene by id.
 
 ---
 
-### 3.4 `set_environment`
+### 3.6 `set_environment`
 
 Replace the entire environment configuration (skybox + fog) in one operation. No partial patch — supply all fields you want to keep.
 
@@ -271,7 +303,7 @@ Replace the entire environment configuration (skybox + fog) in one operation. No
 
 ---
 
-### 3.5 `set_lights`
+### 3.7 `set_lights`
 
 Replace the entire lights array. Light types are a discriminated union on `"type"`.
 
@@ -312,7 +344,7 @@ Replace the entire lights array. Light types are a discriminated union on `"type
 
 ---
 
-### 3.6 `add_spawn`
+### 3.8 `add_spawn`
 
 Add a player spawn point to the scene.
 
@@ -341,7 +373,7 @@ Add a player spawn point to the scene.
 
 ---
 
-### 3.7 `update_spawn`
+### 3.9 `update_spawn`
 
 Patch one or more fields on an existing spawn point.
 
@@ -372,7 +404,7 @@ Patch one or more fields on an existing spawn point.
 
 ---
 
-### 3.8 `delete_spawn`
+### 3.10 `delete_spawn`
 
 Remove a spawn point by id.
 
@@ -991,16 +1023,73 @@ The reference check performs a full sequential scan of `world_versions` rows for
 
 ## 10. Example flows
 
-### 10.a Convert-legacy preview (planned, not shipped)
+### 10.a Convert a legacy world to a scene-graph world
 
-Forward reference to sub-slice 8.5. When a legacy world (no `world_versions` rows) is opened in the editor, the conversion tool will:
+**Shipped in sub-slice 8.3.** Use `POST /api/worlds/[id]/convert-to-scene-graph` to bootstrap any legacy GLB-only world (one that has `worlds.scene_graph IS NULL`) into the Phase 2 scene-graph format.
 
-1. Call `emptySceneGraph()` to get a blank v1 document.
-2. Create a single `world_assets` row pointing at the world's `glb_url`.
-3. Call `POST /scene-graph/ops` with a single `add_object` op placing that asset at `[0, 0, 0]`.
-4. The resulting version becomes the world's first scene-graph version.
+The endpoint reuses the existing R2 object — no re-upload, no file copy.
 
-This flow is **planned** but not yet implemented. Sub-slice 8.5 will deliver it.
+```bash
+export FORGE_TOKEN=<your __session JWT>
+export WORLD_ID=<uuid of a legacy world you own>
+
+curl -s -X POST "https://forge-black-eta.vercel.app/api/worlds/$WORLD_ID/convert-to-scene-graph" \
+  -H "Authorization: Bearer $FORGE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+Successful response (`200`):
+
+```json
+{
+  "worldId": "550e8400-e29b-41d4-a716-446655440000",
+  "sceneGraph": {
+    "schemaVersion": 1,
+    "objects": [
+      {
+        "id": "obj_base",
+        "assetId": "<new world_assets uuid>",
+        "name": "Base",
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      }
+    ],
+    "lights": [
+      { "type": "ambient", "intensity": 0.5, "color": "#ffffff" },
+      { "type": "sun", "intensity": 1, "direction": [5, 5, 5], "color": "#ffffff" }
+    ],
+    "environment": { "skybox": "studio", "fog": null },
+    "spawnPoints": [{ "id": "default", "position": [0, 1.6, 5], "rotation": [0, 0, 0] }],
+    "camera": { "position": [3, 3, 5], "target": [0, 0, 0], "fov": 50 }
+  },
+  "versionId": "<world_versions uuid>",
+  "versionNumber": 1,
+  "assetId": "<world_assets uuid>"
+}
+```
+
+**What happens on the server (single transaction):**
+
+1. A `world_assets` row is inserted, pointing at the world's existing `glb_url`. No upload, no R2 copy — the same object key is reused.
+2. A 1-object `SceneGraphV1` document is built with the new `assetId`, placed at `[0, 0, 0]` as `"obj_base"`.
+3. A `world_versions` row is inserted: `status = "published"`, `versionNumber = 1`, `parentVersionId = null`, `label = "Converted from legacy .glb"`.
+4. `worlds.scene_graph` and `worlds.published_version_id` are set atomically. `worlds.glb_url` is intentionally kept as a safety reference — the legacy renderer is never invoked once `scene_graph` is non-null.
+
+**After conversion** the world is a full scene-graph world. You can call `GET /scene-graph`, `POST /scene-graph/ops`, `GET /versions`, etc. The initial `"obj_base"` object can be repositioned or replaced using `update_object` or `set_object_asset` ops.
+
+**Idempotency and errors:**
+
+| Condition | Status | Body |
+|-----------|--------|------|
+| World already converted (`scene_graph IS NOT NULL`) | 409 | `{ "error": "world is already a scene graph", "sceneGraph": <existing> }` |
+| World has no `glb_url` (defensive — shouldn't occur) | 400 | `{ "error": "world has no .glb to convert" }` |
+| Not authenticated | 401 | `{ "error": "Unauthorized" }` |
+| Not the world owner | 403 | `{ "error": "Forbidden" }` |
+| World not found | 404 | `{ "error": "World not found" }` |
+
+A second call to a world that has already been converted returns 409 — the conversion cannot be undone via API. The `"obj_base"` object can be deleted from the scene graph using a `delete_object` op if you want to start with an empty graph, but the version history and `world_assets` row are permanent.
 
 ---
 
@@ -1108,7 +1197,43 @@ curl -X POST ".../scene-graph/ops" \
 
 ---
 
-## 11. Implementation locations
+## 11. Example clients
+
+### 11.a Folder-watcher CLI (`scripts/forge-watch.ts`)
+
+The folder-watcher is the reference implementation of this API for non-browser clients. It demonstrates:
+
+- Cookie-based auth (`Cookie: __session=<value>`) — the same mechanism any non-browser Node script can use
+- The complete asset upload flow: `POST /uploads/sign` → `PUT <uploadUrl>` → `POST /assets`
+- Optimistic concurrency: reading `versionId` from `GET /scene-graph`, passing it as `baseVersionId`, handling 409 by retrying with `currentVersion.versionId`
+- The `set_object_asset` op for identity-preserving asset swap-in-place
+- Serialized operation queuing — never posting concurrent ops batches to the same world
+
+**Invocation:**
+```bash
+npm run forge:watch -- \
+  --world-id=<uuid> \
+  --folder=<local-path> \
+  --session=<clerk-session-cookie> \
+  [--base-url=http://localhost:3000]
+```
+
+See `scripts/forge-watch.md` for the full user guide including how to extract the `__session` cookie from browser DevTools.
+
+**What an external client needs to implement (illustrated by this CLI):**
+
+1. Bootstrap: `GET /scene-graph` → record `versionId` as the local "base version"
+2. For each asset: `POST /uploads/sign` (kind=asset, worldId, assetId) → `PUT uploadUrl` → `POST /assets`
+3. For each scene mutation: `POST /scene-graph/ops` with `{ ops, baseVersionId }` → on 200, advance local `baseVersionId`; on 409, re-read `currentVersion.versionId`, rebase pending ops, retry
+4. To publish: `POST /versions/[versionId]/publish`
+
+**Auth for non-browser clients (v1):**
+
+All API routes accept `Cookie: __session=<jwt>` in addition to `Authorization: Bearer <jwt>`. The Clerk middleware treats both identically. Copy the `__session` cookie value from browser DevTools and pass it either way.
+
+---
+
+## 12. Implementation locations
 
 Clickable paths for source navigation:
 
@@ -1124,6 +1249,7 @@ Clickable paths for source navigation:
 | GET + POST /assets | [`src/app/api/worlds/[id]/assets/route.ts`](../src/app/api/worlds/%5Bid%5D/assets/route.ts) |
 | DELETE /assets/[assetId] | [`src/app/api/worlds/[id]/assets/[assetId]/route.ts`](../src/app/api/worlds/%5Bid%5D/assets/%5BassetId%5D/route.ts) |
 | POST /uploads/sign (modified for assets) | [`src/app/api/uploads/sign/route.ts`](../src/app/api/uploads/sign/route.ts) |
+| POST /convert-to-scene-graph | [`src/app/api/worlds/[id]/convert-to-scene-graph/route.ts`](../src/app/api/worlds/%5Bid%5D/convert-to-scene-graph/route.ts) |
 | DB schema | [`src/db/schema.ts`](../src/db/schema.ts) |
 | Phase 2.2 migration | [`drizzle/0011_phase2_scene_graph_api.sql`](../drizzle/0011_phase2_scene_graph_api.sql) |
 | Phase 2.1 migration | [`drizzle/0010_phase2_scene_graph_foundation.sql`](../drizzle/0010_phase2_scene_graph_foundation.sql) |

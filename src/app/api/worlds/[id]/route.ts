@@ -56,7 +56,8 @@ export async function GET(
       likesCount: true,
       views: true,
       createdAt: true,
-      sceneGraph: true,   // Phase 2 — nullable jsonb; NULL = legacy world
+      sceneGraph: true,           // Phase 2 — nullable jsonb; NULL = legacy world
+      publishedVersionId: true,   // Phase 2 — nullable; needed by VersionHistorySection
     },
     with: {
       user: {
@@ -174,8 +175,9 @@ export async function GET(
     tags: row.tags.map(wt => ({ name: wt.tag.name })),
     isLikedByCurrentUser,
     isRepostedByCurrentUser,
-    // Phase 2 — scene graph + asset list
+    // Phase 2 — scene graph + asset list + published version id
     sceneGraph,
+    publishedVersionId: row.publishedVersionId ?? null,
     assets: row.assets.map((a) => ({
       id: a.id,
       name: a.name,

@@ -18,6 +18,8 @@ import CommentsSection from "@/components/comments-section/CommentsSection";
 import UpdatesTimeline from "@/components/updates-timeline/UpdatesTimeline";
 import { TagChip } from "@/components/tag-chip/TagChip";
 import { ViewTracker } from "@/components/view-tracker/ViewTracker";
+import { ConvertToSceneGraphButton } from "@/components/convert-to-scene-graph/ConvertToSceneGraphButton";
+import { VersionHistorySection } from "@/components/version-history/VersionHistorySection";
 
 // ---------------------------------------------------------------------------
 // generateMetadata — per-world OG + Twitter Card tags
@@ -226,6 +228,23 @@ export default async function WorldPage(
         signedIn={signedIn}
         currentUserDbId={currentUserDbId}
       />
+
+      {/* Owner-only Phase 2 tools:
+          - Legacy world  → "Convert to editable scene graph" button
+          - Scene-graph world → Version history (immutable snapshots + publish) */}
+      {currentUserDbId === world.author.id && (
+        <>
+          {(world.sceneGraph as SceneGraphV1 | null) === null ? (
+            <ConvertToSceneGraphButton worldId={world.id} />
+          ) : (
+            <VersionHistorySection
+              worldId={world.id}
+              publishedVersionId={world.publishedVersionId ?? null}
+              isOwner={true}
+            />
+          )}
+        </>
+      )}
     </main>
   );
 }

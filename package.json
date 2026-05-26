@@ -16,7 +16,8 @@
     "db:seed-worlds-direct": "tsx scripts/seed-worlds-direct.ts",
     "db:seed-thumbs": "tsx scripts/generate-thumbs.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "forge:watch": "tsx scripts/forge-watch.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1053.0",
@@ -39,6 +40,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/three": "^0.184.1",
+    "chokidar": "^5.0.0",
     "dotenv": "^17.4.2",
     "drizzle-kit": "^0.31.10",
     "eslint": "^9",

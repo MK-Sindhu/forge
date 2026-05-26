@@ -79,9 +79,16 @@ export const DeleteSpawnOp = z.object({
   id: z.string().min(1),
 });
 
+export const SetObjectAssetOp = z.object({
+  op: z.literal("set_object_asset"),
+  id: z.string().min(1),         // object id whose asset is being swapped
+  assetId: z.string().uuid(),    // the new asset to point to
+});
+
 export const SceneGraphOp = z.discriminatedUnion("op", [
   AddObjectOp,
   UpdateObjectOp,
+  SetObjectAssetOp,
   DeleteObjectOp,
   SetEnvironmentOp,
   SetLightsOp,
@@ -155,6 +162,17 @@ export function applyOps(graph: SG, ops: SceneGraphOp[]): SG {
           throw new OperationError(`update_object: id "${op.id}" not found`, i);
         }
         next.objects[idx] = { ...next.objects[idx], ...op.patch };
+        break;
+      }
+      case "set_object_asset": {
+        const idx = next.objects.findIndex((o) => o.id === op.id);
+        if (idx === -1) {
+          throw new OperationError(
+            `set_object_asset target id not found: ${op.id}`,
+            i
+          );
+        }
+        next.objects[idx] = { ...next.objects[idx], assetId: op.assetId };
         break;
       }
       case "delete_object": {

@@ -281,8 +281,47 @@ Verified by walking `src/app/api/` (15 `route.ts` files as of Slice 6). `/api/fe
 | POST | `/api/worlds/[id]/versions/[v]/publish` | required, owner | Mark a specific version as published; sets `worlds.published_version_id`. Idempotent. | 8.2 D2 |
 | POST | `/api/worlds/[id]/assets` | required, owner | Record a `world_assets` row after client has PUT the file to R2. HEADs R2 to verify upload + size; 400 on mismatch. Returns 201 `{ id, name, glbUrl, sizeBytes, createdAt }`. | 8.2 D2 |
 | DELETE | `/api/worlds/[id]/assets/[assetId]` | required, owner | Strict-integrity delete: 409 if any `world_versions.scene_graph` references the asset. Post-commit best-effort R2 cleanup. Returns `{ deleted: true, assetId }`. | 8.2 D2 |
+| POST | `/api/worlds/[id]/convert-to-scene-graph` | required, owner | Convert a legacy GLB-only world to a scene-graph world. Reuses existing `glb_url` — no upload or file copy. Inserts a `world_assets` row, builds a 1-object `SceneGraphV1` wrapping the existing GLB, inserts a `world_versions` row (`status=published`, `versionNumber=1`), and sets `worlds.scene_graph` + `worlds.published_version_id`. Returns `{ worldId, sceneGraph, versionId, versionNumber, assetId }`. 409 if already converted. Idempotent in the sense that a second call returns 409 — the first call cannot be undone via API. See `docs/scene-graph-api.md` §10.a for the full conversion flow. | 8.3 |
 
-## Bulk Seeding (Launch Ops Tool)
+## CLI Scripts
+
+### `scripts/forge-watch.ts` (Phase 2, 8.3 Chunk D)
+
+The folder-watcher CLI — the "edit in Blender, save the .glb, it appears in FORGE" workflow.
+
+**Invocation:**
+```bash
+npm run forge:watch -- \
+  --world-id=<uuid> \
+  --folder=<local-path> \
+  --session=<clerk-session-cookie> \
+  [--base-url=http://localhost:3000]
+```
+`--session` can also be supplied via `FORGE_SESSION` env var.
+
+**Auth:** Cookie-based only (v1). The user copies the `__session` cookie from browser DevTools and passes it here. The script sets `Cookie: __session=<value>` on every API request. On 401, it prints a clear message and exits.
+
+**What it does:**
+1. Validates args + resolves the folder path.
+2. `GET /api/worlds/[id]/scene-graph` — checks the world exists and is scene-graph (not legacy).
+3. `GET /api/worlds/[id]/assets` — loads the existing asset name map (lowercase basename-without-ext → assetId).
+4. Starts chokidar (`awaitWriteFinish: { stabilityThreshold: 500 }`) watching for `.glb` changes.
+5. On `add`: presigns + uploads + finalizes asset row + posts `add_object` op at origin.
+6. On `change`: presigns + uploads a NEW asset (old row kept for version history), then posts `set_object_asset` ops for all matching scene objects.
+7. On `unlink`: prints a warning, removes from local map, does NOT delete from the world.
+8. On 409 conflict from `/ops`: retries once with a fresh `baseVersionId` from the conflict body.
+9. All ops are serialized via a simple async queue (no concurrent POSTs to same world).
+10. SIGINT/SIGTERM → clean chokidar close + exit 0.
+
+**Key design decisions:**
+- Files are read into a Buffer (not streamed) — max 50 MB per R2 cap, acceptable for .glb assets.
+- Old `world_assets` rows are intentionally kept on change — they are referenced by past `world_versions` (history is immutable).
+- Auto-delete on `unlink` is intentionally NOT implemented — a folder rename would destroy a world otherwise.
+- No dotenv load — this script does NOT access the DB directly; it only calls the FORGE HTTP API.
+
+**See:** `scripts/forge-watch.md` for user-facing documentation (session cookie steps, event glyphs, known limitations).
+
+### `scripts/seed-worlds.ts` / `scripts/seed-worlds-direct.ts` — Bulk Seeding (Launch Ops Tool)
 
 `scripts/seed-worlds.ts` is a CLI tool for batch-uploading worlds before public launch. It reuses the existing API surface with no new routes:
 
@@ -344,12 +383,13 @@ See `ROADMAP.md` Phase 2 for the full design discussion.
 
 Pure module — no DB, no I/O. Defines the full mutation vocabulary for scene graphs.
 
-**8 operation types** (Zod discriminated union on `"op"` key):
+**9 operation types** (Zod discriminated union on `"op"` key):
 
 | Op | Key fields | Notes |
 |---|---|---|
 | `add_object` | `assetId` (uuid), optional `id`, `name`, `position`, `rotation`, `scale` | Server auto-generates `id = obj_<8hex>` if absent |
 | `update_object` | `id`, `patch` (partial ObjectSchema minus id/assetId) | Errors if id missing |
+| `set_object_asset` | `id`, `assetId` (uuid) | Identity-preserving asset swap — replaces the `assetId` of an existing object while keeping its `id`, `name`, `position`, `rotation`, `scale` unchanged. Used by folder-watcher CLI (sub-slice 8.3) when a re-uploaded `.glb` replaces a prior asset. Reducer does NOT validate that `assetId` exists in `world_assets`; FK violation surfaces as 503 at insert time. |
 | `delete_object` | `id` | Errors if id missing |
 | `set_environment` | `environment` (EnvironmentSchema) | Replaces the full environment |
 | `set_lights` | `lights` (LightSchema[]) | Replaces the full lights array |
@@ -365,7 +405,7 @@ Pure module — no DB, no I/O. Defines the full mutation vocabulary for scene gr
 - `applyOps(graph: SG, ops: SceneGraphOp[]): SG` — pure reducer; `structuredClone` + `SceneGraphV1.parse` final check
 
 **`applyOps` error conditions (throws `OperationError`):**
-- `update_object` / `delete_object` / `update_spawn` / `delete_spawn` — id not found
+- `update_object` / `delete_object` / `set_object_asset` / `update_spawn` / `delete_spawn` — id not found
 - `add_object` with explicit id that collides with an existing object
 - `add_spawn` with id that collides with an existing spawn point
 - `delete_spawn` that would leave 0 spawn points (v1 invariant: >= 1 required)

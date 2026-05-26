@@ -16,6 +16,7 @@ import {
   OpsBatchSchema,
   MAX_OPS_PER_BATCH,
   OperationError,
+  SetObjectAssetOp,
   applyOps,
   type SceneGraphOp,
 } from "./operations";
@@ -474,5 +475,98 @@ describe("applyOps — delete_spawn", () => {
       expect(err).toBeInstanceOf(OperationError);
       expect((err as OperationError).opIndex).toBe(0);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// set_object_asset
+// ---------------------------------------------------------------------------
+
+const NEW_ASSET_UUID = "770e8400-e29b-41d4-a716-446655440002";
+
+describe("applyOps — set_object_asset", () => {
+  it("swaps the assetId on an existing object while preserving all other fields", () => {
+    // First, build a graph with one object
+    const graph = applyOps(emptySceneGraph(), [
+      {
+        op: "add_object",
+        id: "my-obj",
+        assetId: ASSET_UUID,
+        name: "My Object",
+        position: [1, 2, 3],
+        rotation: [0.1, 0.2, 0.3],
+        scale: [2, 2, 2],
+      },
+    ]);
+
+    // Now swap its asset
+    const result = applyOps(graph, [
+      {
+        op: "set_object_asset",
+        id: "my-obj",
+        assetId: NEW_ASSET_UUID,
+      },
+    ]);
+
+    const obj = result.objects.find((o) => o.id === "my-obj");
+    // assetId should be updated
+    expect(obj?.assetId).toBe(NEW_ASSET_UUID);
+    // Everything else should be unchanged
+    expect(obj?.id).toBe("my-obj");
+    expect(obj?.name).toBe("My Object");
+    expect(obj?.position).toEqual([1, 2, 3]);
+    expect(obj?.rotation).toEqual([0.1, 0.2, 0.3]);
+    expect(obj?.scale).toEqual([2, 2, 2]);
+  });
+
+  it("throws OperationError with correct opIndex when target id does not exist", () => {
+    const graph = emptySceneGraph();
+    try {
+      applyOps(graph, [
+        {
+          op: "set_object_asset",
+          id: "nonexistent-obj",
+          assetId: NEW_ASSET_UUID,
+        },
+      ]);
+      expect.fail("expected OperationError");
+    } catch (err) {
+      expect(err).toBeInstanceOf(OperationError);
+      expect((err as OperationError).opIndex).toBe(0);
+      expect((err as OperationError).message).toContain("nonexistent-obj");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SetObjectAssetOp — Zod schema validation
+// ---------------------------------------------------------------------------
+
+describe("SetObjectAssetOp — Zod validation", () => {
+  it("rejects a non-uuid assetId", () => {
+    const result = SetObjectAssetOp.safeParse({
+      op: "set_object_asset",
+      id: "my-obj",
+      assetId: "not-a-uuid",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an empty id", () => {
+    const result = SetObjectAssetOp.safeParse({
+      op: "set_object_asset",
+      id: "",
+      assetId: NEW_ASSET_UUID,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts a valid op shape", () => {
+    const result = SetObjectAssetOp.safeParse({
+      op: "set_object_asset",
+      id: "my-obj",
+      assetId: NEW_ASSET_UUID,
+    });
+    expect(result.success).toBe(true);
   });
 });

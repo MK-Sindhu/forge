@@ -65,8 +65,12 @@ src/
     │   └── NotificationBell.tsx   # server component; bell icon + unread badge; link to /notifications; props: initialUnreadCount
     ├── unsuspend-button/
     │   └── UnsuspendButton.tsx    # client component; confirms via window.confirm, DELETE /api/admin/users/[id]/suspend, router.refresh() on success; props: userId, username
-    └── welcome-callout/
-        └── WelcomeCallout.tsx     # server component; onboarding callout for fresh signed-in users (no uploads + no follows); headline + 3 action cards (Upload / Trending / Search); no props — always renders the same content; mounts in page.tsx only when isFreshUser === true
+    ├── welcome-callout/
+    │   └── WelcomeCallout.tsx     # server component; onboarding callout for fresh signed-in users (no uploads + no follows); headline + 3 action cards (Upload / Trending / Search); no props — always renders the same content; mounts in page.tsx only when isFreshUser === true
+    ├── convert-to-scene-graph/
+    │   └── ConvertToSceneGraphButton.tsx  # client component; Phase 2; owner-only; props: worldId; POST /api/worlds/[id]/convert-to-scene-graph → router.refresh() on 200 or 409; shows "Converting…" + spinner while in-flight; inline error on failure; understated card panel below the world viewer
+    └── version-history/
+        └── VersionHistorySection.tsx      # client component; Phase 2; owner-only; props: worldId, publishedVersionId, isOwner; fetches GET /api/worlds/[id]/versions on mount; lists versions with status pills (Currently published / Published / Draft); owner Publish button → POST /api/worlds/[id]/versions/[v]/publish (optimistic update + revert on failure); "Load more" cursor pagination; skeleton loading + inline error + empty state
 # Note: Header and Footer are inlined in src/app/layout.tsx, not separate component directories.
 # Footer nav links: DMCA · Terms · Privacy (all three live in /legal/)
 ```
@@ -77,7 +81,7 @@ src/
 |---|---|---|---|---|
 | `/` | `src/app/page.tsx` | Server | Feed (3 tabs via `?tab=`: Recent, Trending, Following). Cards show up to 3 tag chips + `+N more` overflow. Trending and Recent are public (no auth gate); Following redirects to sign-in if unauthenticated. **Onboarding:** `<WelcomeCallout />` renders above the tab bar for "fresh" signed-in users (no uploads + no follows). The `isFreshUser` flag is computed via two cheap 1-row DB probes (worlds + follows) immediately after the `currentDbUserId` lookup. Callout disappears automatically once user uploads or follows. `ContextualEmptyState` is now actionable: Following tab has "Browse Trending" + "Search worlds" buttons; Recent tab has "Upload your first world" button (signed-in only). | 1, 3, 4, 5, 7.1, 7.4, launch-ops |
 | `/search` | `src/app/search/page.tsx` | Server (public) | Full-text search results. Reads `?q=` and/or `?tag=`. Three branches: empty state (neither), FTS query (`q` only), tag filter (`tag` only), intersection (both). Direct DB query — no API route. Cap 50 results. `search_vector` is Postgres-managed (trigger-populated, not in Drizzle schema). `generateMetadata` produces dynamic title/description for shareable search URLs (e.g. `#mytag · FORGE`, `Search: "robots" · FORGE`). | 7.2, launch-polish |
-| `/world/[id]` | `src/app/world/[id]/page.tsx` | Server | World viewer page (3D + metadata + carousel + updates + comments + actions). Tag chips row below title. `generateMetadata` produces per-world OG + Twitter Card tags (title, description, thumbnail image, author). Direct DB query for metadata fetch (lean 3-column query — does not re-call the API route). **Viewer branch (8.1):** if `world.sceneGraph !== null`, renders `<SceneGraphRendererClient sceneGraph assets ariaLabel />` (multi-asset scene graph path); otherwise falls back to `<WorldViewerClient glbUrl ariaLabel />` (legacy single-GLB path). All existing worlds have `sceneGraph: null` and continue to render via the legacy path unchanged. | 1, 2, 3, 4, 5, 7.1, 8.1, launch-polish |
+| `/world/[id]` | `src/app/world/[id]/page.tsx` | Server | World viewer page (3D + metadata + carousel + updates + comments + actions). Tag chips row below title. `generateMetadata` produces per-world OG + Twitter Card tags (title, description, thumbnail image, author). Direct DB query for metadata fetch (lean 3-column query — does not re-call the API route). **Viewer branch (8.1):** if `world.sceneGraph !== null`, renders `<SceneGraphRendererClient sceneGraph assets ariaLabel />` (multi-asset scene graph path); otherwise falls back to `<WorldViewerClient glbUrl ariaLabel />` (legacy single-GLB path). All existing worlds have `sceneGraph: null` and continue to render via the legacy path unchanged. **Owner-only Phase 2 tools (8.3 Chunk C):** if owner + legacy world (`sceneGraph === null`) → `<ConvertToSceneGraphButton>`; if owner + scene-graph world → `<VersionHistorySection>`. Non-owners see neither. The `GET /api/worlds/[id]` response now includes `publishedVersionId` (null for legacy worlds). | 1, 2, 3, 4, 5, 7.1, 8.1, 8.3, launch-polish |
 | `/profile/[username]` | `src/app/profile/[username]/page.tsx` | Server | Profile (avatar, follower/following counts, world grid). Cards show up to 3 tag chips + `+N more` overflow. `generateMetadata` produces per-profile OG + Twitter Card tags (username, world count, avatar image). | 1, 3, 7.1, launch-polish |
 | `/upload` | `src/app/upload/page.tsx` + `UploadForm.tsx` | Client (`UploadForm`) | Multi-step upload form. Static `metadata` for browser tab clarity (`Upload a world · FORGE`). | 1, 2, launch-polish |
 | `/sign-in/[[...sign-in]]` | `src/app/sign-in/[[...sign-in]]/page.tsx` | Server (Clerk drop-in) | Clerk sign-in | 0 |
@@ -292,7 +296,31 @@ Shipped in 7.5:
 - `MarkAllReadOnView` (`src/app/notifications/MarkAllReadOnView.tsx`) — client component, returns `null`. Uses `useRef<boolean>` + `useEffect` + `setTimeout(1500)` to POST `{ all: true }` to `/api/notifications/mark-read` once after 1.5s. StrictMode-safe (ref set before timer, not in callback).
 - `NotificationList` (`src/app/notifications/NotificationList.tsx`) — client component. Holds notification array in `useState`. Per-type message rendering (4 types; see Patterns). "Load more" button fetches next page via `GET /api/notifications?cursor=...` and appends to state. Error state via `role="alert"`. Empty state when 0 items.
 
-## Phase 2 Frontend Additions (Future, Not Now)
+## Phase 2 Frontend Additions
+
+### Sub-slice 8.3 Chunk C — Scene Graph Conversion + Version History UI (shipped 2026-05-26)
+
+Two new owner-only components on `/world/[id]`, wired after the comments section.
+
+**`ConvertToSceneGraphButton`** (`src/components/convert-to-scene-graph/ConvertToSceneGraphButton.tsx`)
+- Client component. Props: `{ worldId: string }`.
+- Shown to world owner only when `world.sceneGraph === null` (legacy world).
+- POSTs to `/api/worlds/[id]/convert-to-scene-graph`. On 200 or 409 (already done) → `router.refresh()`. On other errors → inline error message, button re-enabled.
+- `aria-busy` while in-flight. Understated card panel (border + neutral background) — not a prominent CTA.
+- Test file: `src/components/convert-to-scene-graph/ConvertToSceneGraphButton.test.ts` (5 tests covering URL/method, 200 success, 409 idempotency, 500 error, network error).
+
+**`VersionHistorySection`** (`src/components/version-history/VersionHistorySection.tsx`)
+- Client component. Props: `{ worldId: string; publishedVersionId: string | null; isOwner: boolean }`.
+- Shown to world owner only when `world.sceneGraph !== null` (scene-graph world).
+- Fetches `GET /api/worlds/[id]/versions` on mount. Cursor pagination via "Load more" button.
+- Each version row: `Version N` + optional label + status pill (Currently published / Published / Draft) + relative timestamp + `@author`.
+- Optimistic publish: on Publish click, immediately swaps published pill; POST `/api/worlds/[id]/versions/[v]/publish` → `router.refresh()` on success; reverts + shows inline error on failure.
+- Skeleton loading (3 animated rows), inline error + Retry button, empty state text.
+- Test file: `src/components/version-history/VersionHistorySection.test.ts` (7 tests covering initial load, published-version identification, owner vs non-owner visibility, load-more, publish success, publish failure revert).
+
+**`GET /api/worlds/[id]` change**: now returns `publishedVersionId: string | null` alongside `sceneGraph`. `VersionHistorySection` uses this for the initial "currently published" pill state. The `route.test.ts` key-snapshot test was updated to include this field.
+
+### Still to come (Phase 2)
 
 - `/world/[id]/edit` route — the in-browser editor (owned by `r3f-engineer` for the 3D parts, but the page chrome + panels are frontend territory)
 - Touch-friendly controls (tablets day-one, phones graceful-degradation)

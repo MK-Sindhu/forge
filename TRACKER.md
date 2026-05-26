@@ -2,7 +2,7 @@
 
 > The "what is done, what is left, what is in-flight" doc. Updated after every slice ships and after every prod smoke test.
 
-**Last updated:** 2026-05-26
+**Last updated:** 2026-05-26 (8.3 close)
 
 ---
 
@@ -11,11 +11,11 @@
 | | |
 |---|---|
 | Current phase | Phase 2 — Architectural Pivot |
-| Current slice | Sub-slice 8.2 (Scene Graph API) shipped 🟢 — prod migration pending |
-| In-flight | Awaiting founder prod migration for 0010 + 0011; then 8.3 (improved upload + folder-watcher CLI) |
-| Tests | 518 across 30 test files |
-| Commits on main | Slices 0–7 + 8.1 baseline + 8.2 closeout (latest commit pending) |
-| Latest commit | (this commit — Phase 2 sub-slice 8.2 Scene Graph API) |
+| Current slice | Sub-slice 8.3 (Improved Upload + Convert + Folder-Watcher CLI) shipped 🟢 — prod migration for 0010 + 0011 still pending |
+| In-flight | Awaiting founder prod migration; then 8.4 (browser editor — the headline feature) |
+| Tests | 542 across 33 test files |
+| Commits on main | Slices 0–7 + 8.1 + 8.2 + 8.3 closeout (latest commit pending) |
+| Latest commit | (this commit — Phase 2 sub-slice 8.3 Improved Upload + Convert + Folder-Watcher CLI) |
 | Branch state | `main` clean, in sync with `origin/main` |
 | Production | https://forge-black-eta.vercel.app |
 | DB | Neon Postgres — 14 tables, 11 migrations applied locally (0010 = 8.1 substrate; 0011 = 8.2 indexes). **Prod migration for 0010 + 0011 pending founder action.** |
@@ -27,7 +27,7 @@
 |---|---|---|
 | Phase 0 — Foundation | ✅ COMPLETE | Slices 0–6 shipped |
 | Phase 1 — Launch | 🟡 IN PROGRESS | Slice 7 ✅ verified 2026-05-25; launch ops next (Terms, DMCA, onboarding, seed worlds, analytics, public launch) |
-| Phase 2 — Architectural Pivot | 🟡 IN PROGRESS | Sub-slices 8.1 (Scene Graph Foundation) + 8.2 (Scene Graph API) shipped 2026-05-26; 8.3 (improved upload + folder-watcher CLI) · 8.4 (browser editor) · 8.5 (back-compat conversion) next. 8.6 (AI assist) parked per founder direction. |
+| Phase 2 — Architectural Pivot | 🟡 IN PROGRESS | Sub-slices 8.1 (Scene Graph Foundation) + 8.2 (Scene Graph API) + 8.3 (Improved Upload + Convert + Folder-Watcher CLI; absorbs 8.5 scope) shipped 2026-05-26. **8.4 (browser editor) next — the headline visible feature.** ~~8.5~~ absorbed into 8.3. 8.6 (AI assist) parked per founder direction. |
 | Phase 3 — Collaboration | ⬜ NOT STARTED | Async → Presence → Realtime edit |
 | Phase 4 — Living Worlds | ⬜ NOT STARTED | Interactivity + portals + scripting |
 | Phase 5 — Persistent Ecosystem | ⬜ NOT STARTED | Cross-world identity, asset library, full AI gen |
@@ -176,9 +176,9 @@ Schema additions + locked design decisions for Slice 7 are recorded in `PROJECT.
 |---|---|---|
 | 8.1 | Scene Graph Foundation — storage substrate + renderer split | 🟢 |
 | 8.2 | Scene Graph API — operations-based REST + permissions + audit log | 🟢 |
-| 8.3 | Improved Upload Pipeline + Folder-Watcher CLI | ⬜ |
+| 8.3 | Improved Upload + Convert-to-Scene-Graph button + Version-History UI + Folder-Watcher CLI | 🟢 |
 | 8.4 | Browser Editor — first client of the API | ⬜ |
-| 8.5 | Backward Compatibility + Conversion Tool | ⬜ |
+| ~~8.5~~ | ~~Backward Compatibility + Conversion Tool~~ — ABSORBED into 8.3 (convert button shipped early to give founder visible win) | — |
 | ~~8.6~~ | ~~AI Editor Assist~~ — PARKED per founder direction, see `DEFERRED.md` | — |
 
 Locked design decisions for Phase 2 are recorded in `PROJECT.md` §7 decision log and the plan file. See `docs/3d.md` "Phase 2 — Scene Graph Rendering" for renderer architecture and `src/lib/scene-graph/schema.ts` for the v1 schema.
@@ -200,6 +200,23 @@ Locked design decisions for Phase 2 are recorded in `PROJECT.md` §7 decision lo
 | Tests | 445 → 518 (+73 across 8 new test files: ops reducer + permissions helper + 6 route test files) |
 | Smoke checklist (prod) | (1) `npm run db:smoke` confirms `world_versions` has both new indexes · (2) `GET /scene-graph` for a legacy world → `{ sceneGraph: null, versionId: null, ... }` · (3) `GET /versions` for legacy → `{ versions: [], nextCursor: null }` · (4) `GET /assets` for legacy → `{ assets: [] }` · (5) Manual presign `kind: "asset"` returns presigned URL with `assets/{clerkId}/{assetId}/asset.glb` key · (6) PUT to URL + `POST /assets` returns 201 + row visible · (7) `POST /scene-graph/ops` with `add_object` → 200 + new version; `GET /scene-graph` reflects it · (8) Stale `baseVersionId` → 409 with full rebase body · (9) `POST /versions/[v]/publish` → 200 + subsequent GET shows `status: "published"` · (10) DELETE in-use asset → 409 with `referencedBy.versionNumber` · (11) DELETE unused asset → 200 + R2 object cleaned (best-effort) · (12) All 31 legacy worlds still render identically · (13) CI green |
 
+#### Slice 8.3 — Improved Upload + Convert + Folder-Watcher CLI 🟢
+
+| | |
+|---|---|
+| Status | Shipped + deployed; prod migration for 0010 + 0011 (from 8.1 + 8.2) still pending. **First visible UI shipping in Phase 2.** |
+| What | Pulls 8.5's "Convert to scene graph" tool forward to give the founder a visible button on every legacy world. Adds the `set_object_asset` op (closes an 8.2 gap — folder-watcher CLI couldn't swap an object's asset without it). Adds version-history UI on the world page (owner-only). Ships the folder-watcher CLI (`scripts/forge-watch.ts`) so creators editing `.glb` files in Blender/etc. see changes flow into a FORGE scene-graph world without ever touching the website. **No editor UI** — that's 8.4. |
+| New API op | `set_object_asset` (9th op in `SceneGraphOp` discriminated union) — identity-preserving asset replacement on an existing object. Reducer throws `OperationError` if `id` not found. Does NOT validate the new `assetId` against `world_assets` in the reducer (FK violation surfaces at insert time as 503). Use case: folder-watcher CLI + future "replace asset" UI button. |
+| New API route | `POST /api/worlds/[id]/convert-to-scene-graph` (owner-only; 409 if already converted; 400 if no glb to convert; reuses existing R2 object — no upload). Inside transaction: insert `world_assets` row pointing at existing `glb_url` → build 1-object scene graph with `obj_base` id + ambient + sun + studio skybox + default spawn → insert `world_versions` row (status=published, versionNumber=1, parentVersionId=null) → update `worlds.scene_graph` + `published_version_id`. Idempotent post-conversion (2nd call returns 409 with the existing scene graph). |
+| New components | `convert-to-scene-graph/ConvertToSceneGraphButton.tsx` (owner-only, only renders if `world.sceneGraph === null`; understated card panel — not a big CTA; on success → `router.refresh()`; treats 409 as success) · `version-history/VersionHistorySection.tsx` (owner-only, only renders if `world.sceneGraph !== null`; cursor-paginated list from `GET /versions`; status pills: `Currently published` / `Published` / `Draft`; optimistic publish with revert-on-error; skeleton + error + empty states; "View past versions" deferred to a later sub-slice) |
+| Modified API | `GET /api/worlds/[id]` extended response — adds `publishedVersionId` field (needed by version-history UI to highlight the currently-published row) |
+| Modified page | `src/app/world/[id]/page.tsx` — wires both new components into the owner-only block below the world viewer |
+| Folder-watcher CLI | `scripts/forge-watch.ts` (~415 lines) + `scripts/forge-watch.md`. chokidar v5-based; auth via pasted browser session cookie; `awaitWriteFinish` debounce for partial writes (Blender chunks); serialized op queue (no 409 conflict storms); on file `add` → presign + PUT + finalize + `add_object` at origin; on `change` → fresh `assetId` (preserves history) + `set_object_asset` for each object referencing the old asset; on `unlink` → no auto-delete (manual safety); on 409 → one retry with fresh `baseVersionId` then skip. Plain-text console with `[+] [~] [-] [!] [OK]` glyphs. One-day timebox honored — no unit tests (human smoke + small surface). |
+| New dependency | `chokidar ^5.0.0` (devDependency — dev-only tool) |
+| Documentation | `docs/scene-graph-api.md` — added §3.3 `set_object_asset` reference (renumbered subsequent sections) + new §10/11 "Example clients" subsection pointing at the CLI as the reference non-browser implementation; replaced the 8.5 forward-reference stub with full shipped-route documentation for `convert-to-scene-graph`. `docs/backend.md` — bumped op count to 9, added `set_object_asset` row, added convert route to API inventory, added `## CLI Scripts` section. `docs/frontend.md` — added both new components + page wiring. |
+| Tests | 518 → 542 (+24 across 4 new test files: operations test extended +5 for `set_object_asset`, convert route +8, ConvertToSceneGraphButton +5, VersionHistorySection +7; folder-watcher CLI tests skipped per timebox) |
+| Smoke checklist (prod) | (0) Prereq: 0010 + 0011 migrations applied to prod · (1) Visit your own legacy world signed in → see "Convert to editable scene graph" card below comments · (2) Click → page refreshes → world renders identically via SceneGraphRenderer · (3) "Version history" section now appears with "Version 1 · Converted from legacy .glb · Currently published" · (4) Visit converted world signed-out or as non-owner → version history hidden · (5) Hit `POST /convert-to-scene-graph` on already-converted world → 409 with `sceneGraph` echo · (6) `npm run forge:watch -- --world-id=... --folder=./test-glb --session=...` against a converted world → drop a `.glb` → terminal shows `[+] Added` → world page refresh shows new object in viewer · (7) Overwrite the same file → `[~] Updated, N object(s) swapped` → new `world_versions` row in version history · (8) Browser refresh → version history shows new version · (9) All 31 legacy worlds (un-converted) still render identically · (10) CI green |
+
 ## 4. Known Issues / Follow-ups (Open)
 
 Things that work but should be cleaned up before or shortly after launch.
@@ -216,7 +233,7 @@ Things that work but should be cleaned up before or shortly after launch.
 
 | Metric | Value |
 |---|---|
-| **Total** | **30 test files / 518 tests** — all passing on main |
+| **Total** | **33 test files / 542 tests** — all passing on main |
 | Per-slice inventory | See `docs/testing.md` "Test Inventory by Slice" — owned + maintained by `test-engineer` |
 | 3D / R3F component tests | None (deferred to Phase 2 per `docs/testing.md`) |
 | E2E (Playwright/Cypress) | None (unit + integration only) |
@@ -230,7 +247,7 @@ Run anytime to verify state:
 ```bash
 git log --oneline -5            # Recent commits
 git status                       # Clean tree expected
-npm test                         # 518 tests expected
+npm test                         # 542 tests expected
 npm run build                    # Clean build expected
 npm run db:smoke                 # All 14 tables present, current row counts
 ```
