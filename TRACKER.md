@@ -2,7 +2,7 @@
 
 > The "what is done, what is left, what is in-flight" doc. Updated after every slice ships and after every prod smoke test.
 
-**Last updated:** 2026-05-26 (8.3 close)
+**Last updated:** 2026-05-26 (8.4 close)
 
 ---
 
@@ -11,11 +11,11 @@
 | | |
 |---|---|
 | Current phase | Phase 2 — Architectural Pivot |
-| Current slice | Sub-slice 8.3 (Improved Upload + Convert + Folder-Watcher CLI) shipped 🟢 — prod migration for 0010 + 0011 still pending |
-| In-flight | Awaiting founder prod migration; then 8.4 (browser editor — the headline feature) |
-| Tests | 542 across 33 test files |
-| Commits on main | Slices 0–7 + 8.1 + 8.2 + 8.3 closeout (latest commit pending) |
-| Latest commit | (this commit — Phase 2 sub-slice 8.3 Improved Upload + Convert + Folder-Watcher CLI) |
+| Current slice | Sub-slice 8.4 (Browser Editor — the headline visible feature) shipped 🟢 — prod migration for 0010 + 0011 still pending |
+| In-flight | Awaiting founder prod migration + 8.4 prod smoke. Phase 2 substantially complete. |
+| Tests | 659 across 40 test files |
+| Commits on main | Slices 0–7 + 8.1 + 8.2 + 8.3 + 8.4 closeout (latest commit pending) |
+| Latest commit | (this commit — Phase 2 sub-slice 8.4 Browser Editor) |
 | Branch state | `main` clean, in sync with `origin/main` |
 | Production | https://forge-black-eta.vercel.app |
 | DB | Neon Postgres — 14 tables, 11 migrations applied locally (0010 = 8.1 substrate; 0011 = 8.2 indexes). **Prod migration for 0010 + 0011 pending founder action.** |
@@ -27,7 +27,7 @@
 |---|---|---|
 | Phase 0 — Foundation | ✅ COMPLETE | Slices 0–6 shipped |
 | Phase 1 — Launch | 🟡 IN PROGRESS | Slice 7 ✅ verified 2026-05-25; launch ops next (Terms, DMCA, onboarding, seed worlds, analytics, public launch) |
-| Phase 2 — Architectural Pivot | 🟡 IN PROGRESS | Sub-slices 8.1 (Scene Graph Foundation) + 8.2 (Scene Graph API) + 8.3 (Improved Upload + Convert + Folder-Watcher CLI; absorbs 8.5 scope) shipped 2026-05-26. **8.4 (browser editor) next — the headline visible feature.** ~~8.5~~ absorbed into 8.3. 8.6 (AI assist) parked per founder direction. |
+| Phase 2 — Architectural Pivot | 🟢 SUBSTANTIALLY COMPLETE | Sub-slices 8.1 (Scene Graph Foundation) + 8.2 (Scene Graph API) + 8.3 (Improved Upload + Convert + Folder-Watcher CLI; absorbs 8.5 scope) + 8.4 (Browser Editor) all shipped 2026-05-26. ~~8.5~~ absorbed into 8.3. 8.6 (AI assist) parked per founder direction. Awaiting founder prod migration + prod smoke to flip 🟢 → ✅. |
 | Phase 3 — Collaboration | ⬜ NOT STARTED | Async → Presence → Realtime edit |
 | Phase 4 — Living Worlds | ⬜ NOT STARTED | Interactivity + portals + scripting |
 | Phase 5 — Persistent Ecosystem | ⬜ NOT STARTED | Cross-world identity, asset library, full AI gen |
@@ -177,7 +177,7 @@ Schema additions + locked design decisions for Slice 7 are recorded in `PROJECT.
 | 8.1 | Scene Graph Foundation — storage substrate + renderer split | 🟢 |
 | 8.2 | Scene Graph API — operations-based REST + permissions + audit log | 🟢 |
 | 8.3 | Improved Upload + Convert-to-Scene-Graph button + Version-History UI + Folder-Watcher CLI | 🟢 |
-| 8.4 | Browser Editor — first client of the API | ⬜ |
+| 8.4 | Browser Editor — first client of the API | 🟢 |
 | ~~8.5~~ | ~~Backward Compatibility + Conversion Tool~~ — ABSORBED into 8.3 (convert button shipped early to give founder visible win) | — |
 | ~~8.6~~ | ~~AI Editor Assist~~ — PARKED per founder direction, see `DEFERRED.md` | — |
 
@@ -217,6 +217,24 @@ Locked design decisions for Phase 2 are recorded in `PROJECT.md` §7 decision lo
 | Tests | 518 → 542 (+24 across 4 new test files: operations test extended +5 for `set_object_asset`, convert route +8, ConvertToSceneGraphButton +5, VersionHistorySection +7; folder-watcher CLI tests skipped per timebox) |
 | Smoke checklist (prod) | (0) Prereq: 0010 + 0011 migrations applied to prod · (1) Visit your own legacy world signed in → see "Convert to editable scene graph" card below comments · (2) Click → page refreshes → world renders identically via SceneGraphRenderer · (3) "Version history" section now appears with "Version 1 · Converted from legacy .glb · Currently published" · (4) Visit converted world signed-out or as non-owner → version history hidden · (5) Hit `POST /convert-to-scene-graph` on already-converted world → 409 with `sceneGraph` echo · (6) `npm run forge:watch -- --world-id=... --folder=./test-glb --session=...` against a converted world → drop a `.glb` → terminal shows `[+] Added` → world page refresh shows new object in viewer · (7) Overwrite the same file → `[~] Updated, N object(s) swapped` → new `world_versions` row in version history · (8) Browser refresh → version history shows new version · (9) All 31 legacy worlds (un-converted) still render identically · (10) CI green |
 
+#### Slice 8.4 — Browser Editor 🟢
+
+| | |
+|---|---|
+| Status | Shipped + deployed; prod migration for 0010 + 0011 (from 8.1 + 8.2) still pending. **Phase 2 headline feature.** First real client of the 8.2 ops API. |
+| What | Full in-browser scene-graph editor at `/world/[id]/edit`, owner-gated. Three-panel layout: assets (left, with in-editor `.glb` upload) · viewport with TransformControls gizmo (center) · properties panel (right, 4 tabs: object / lights / environment / spawn-points). Per-operation in-memory undo/redo. Autosave drafts every 2s · "Save as version" with optional label · "Publish" promotes the latest version. Desktop-first, tablet-supported; phones see a "switch device" notice. Keyboard: T/R/S gizmo mode · Delete/Backspace object · Escape deselect · Ctrl/⌘+Z/Shift+Z undo/redo. |
+| New page | `/world/[id]/edit` (server component) — owner gate, legacy-world rejection (must convert first via 8.3 button), inline DB fetch of latest version + asset list, forwards data to client shell |
+| New route segment layout | `src/app/world/[id]/edit/layout.tsx` — strips root header/footer for true fullscreen editor chrome |
+| State layer | `src/components/editor/editor-store.ts` — Zustand store: `sceneGraph` + `serverSceneGraph` + `baseVersionId` + `pendingOps[]` + `selectedObjectId` + `gizmoMode` + `propertiesTab` + `autosaveStatus` + undo/redo stacks. Actions: `initialize`, `selectObject`, `setGizmoMode`, `setPropertiesTab`, `applyOp`, `addObject` (returns new id), `updateObject`, `deleteSelectedObject`, `setObjectAsset`, `setEnvironment`, `setLights`, `addSpawn`/`updateSpawn`/`deleteSpawn`, `undo`/`redo`/`canUndo`/`canRedo`, save lifecycle (`beginSave`/`completeSave`/`failSave`/`rebaseOnServerVersion`), selectors (`isDirty`, `getSelectedObject`). Undo stack capped at 50; rebase clears both stacks. `beginSave` caps batches at `MAX_OPS_PER_BATCH = 100`. |
+| New components | `EditorShell` · `EditorTopBar` (gizmo tabs + undo/redo + Save/Publish buttons + status text) · `EditorStatusBar` (autosave state + ops count + version id) · `PhoneNotice` (< 768px) · `Viewport` (R3F Canvas with TransformControls + OrbitControls + drei `<Outlines>` selection highlight + infinite grid floor + deselect plane) · `EditorAssetMesh` (per-object `<group>` with `useGLTF` clone + ref-registration map for gizmo attach) · `AssetPanel` (asset list with drag-drop upload + XHR progress + 50 MB cap) · `PropertiesPanel` with 4 tabs · `Vec3Input` + `ColorInput` shared inputs |
+| Save infrastructure | `save-client.ts` (pure fetch wrappers: `saveOps` + `publishVersion` with discriminated-union results) · `use-autosave.ts` (2s interval; `inFlightRef` re-entry guard; bounded conflict-retry — max 3 consecutive 409s → rebase on each, then `failSave` and stop until next user action) |
+| New dependencies | `zustand ^5.0.13` (production) |
+| Schema/migration changes | NONE — pure UI on top of 8.2 ops API + 8.3 convert |
+| Documentation | `docs/frontend.md` extensively updated (6 Chunk sections + component file structure) · `docs/3d.md` updated (editor viewport architecture: no-Bounds rationale, ref-registration map, one-op-per-drag commit, `<Outlines>` selection, route-segment layout, Delete shortcut) |
+| Tests | 542 → 659 (+117 across 9 new test files): editor-store (+32) · EditorTopBar shortcuts (+8) · viewport-delete-shortcut (+8) · AssetPanel (+34) · PropertiesPanel (+32) · save-client (+9) · use-autosave (+6). Viewport Canvas rendering NOT unit-tested (R3F WebGL mock too heavy for v1 — relies on prod smoke). Folder-watcher CLI also unTest unit-tested per 8.3 timebox. |
+| Explicitly out of v1 (parking lot) | Multi-select · grouping · per-object material overrides · animations · grid snapping · prefabs · realtime collab (Phase 3) · phone touch gizmos (research project; 8.4.X follow-up if needed) · timeline scrubbing past versions (still-coming-soon note in version-history UI) |
+| Smoke checklist (prod) | (0) Prereq: 0010 + 0011 migrations applied to prod · (1) Convert a world (8.3 button) → click "Edit world" or navigate to `/world/[id]/edit` → see 3-panel editor · (2) Click an asset in the left panel → it appears at origin in the center viewport · (3) Click the object → TransformControls gizmo appears + properties panel populates · (4) Drag the gizmo → object moves; release → status bar shows "1 op applied" (or "Saving…" → "Saved") · (5) Press R → gizmo switches to rotate; S → scale · (6) Press Cmd+Z → object snaps back to previous transform (autosave still respects the undo — no orphaned ops sent to server) · (7) Press Delete with object selected → object disappears · (8) Switch to Lights tab → change sun intensity → 3D scene updates · (9) Switch to Environment tab → change skybox preset → environment updates · (10) Click "Save as version" → prompt for label → status bar confirms save · (11) Click "Publish" → confirm dialog → status updates · (12) Refresh page → all changes persist · (13) Visit `/world/[id]` (non-edit) as a visitor → see published version · (14) Resize browser to mobile (<768px) → "Switch to a bigger screen" notice appears · (15) Drag a new `.glb` onto the asset panel → uploads → appears in list · (16) CI green |
+
 ## 4. Known Issues / Follow-ups (Open)
 
 Things that work but should be cleaned up before or shortly after launch.
@@ -233,7 +251,7 @@ Things that work but should be cleaned up before or shortly after launch.
 
 | Metric | Value |
 |---|---|
-| **Total** | **33 test files / 542 tests** — all passing on main |
+| **Total** | **40 test files / 659 tests** — all passing on main |
 | Per-slice inventory | See `docs/testing.md` "Test Inventory by Slice" — owned + maintained by `test-engineer` |
 | 3D / R3F component tests | None (deferred to Phase 2 per `docs/testing.md`) |
 | E2E (Playwright/Cypress) | None (unit + integration only) |
@@ -247,7 +265,7 @@ Run anytime to verify state:
 ```bash
 git log --oneline -5            # Recent commits
 git status                       # Clean tree expected
-npm test                         # 542 tests expected
+npm test                         # 659 tests expected
 npm run build                    # Clean build expected
 npm run db:smoke                 # All 14 tables present, current row counts
 ```

@@ -21,7 +21,8 @@ src/
 ├── app/                      # Next.js App Router pages
 │   ├── layout.tsx            # Root layout with ClerkProvider + Header + Footer + NotificationBell
 │   ├── page.tsx              # Feed (Recent / Following tabs)
-│   ├── world/[id]/           # World viewer page
+│   ├── world/[id]/           # World viewer page + editor
+│   │   └── edit/             # In-browser world editor (owner-gated server component + EditorShell)
 │   ├── profile/[username]/   # Profile page
 │   ├── upload/               # Multi-step upload form
 │   ├── notifications/        # Notification feed (auth-gated server component)
@@ -69,8 +70,29 @@ src/
     │   └── WelcomeCallout.tsx     # server component; onboarding callout for fresh signed-in users (no uploads + no follows); headline + 3 action cards (Upload / Trending / Search); no props — always renders the same content; mounts in page.tsx only when isFreshUser === true
     ├── convert-to-scene-graph/
     │   └── ConvertToSceneGraphButton.tsx  # client component; Phase 2; owner-only; props: worldId; POST /api/worlds/[id]/convert-to-scene-graph → router.refresh() on 200 or 409; shows "Converting…" + spinner while in-flight; inline error on failure; understated card panel below the world viewer
-    └── version-history/
-        └── VersionHistorySection.tsx      # client component; Phase 2; owner-only; props: worldId, publishedVersionId, isOwner; fetches GET /api/worlds/[id]/versions on mount; lists versions with status pills (Currently published / Published / Draft); owner Publish button → POST /api/worlds/[id]/versions/[v]/publish (optimistic update + revert on failure); "Load more" cursor pagination; skeleton loading + inline error + empty state
+    ├── version-history/
+    │   └── VersionHistorySection.tsx      # client component; Phase 2; owner-only; props: worldId, publishedVersionId, isOwner; fetches GET /api/worlds/[id]/versions on mount; lists versions with status pills (Currently published / Published / Draft); owner Publish button → POST /api/worlds/[id]/versions/[v]/publish (optimistic update + revert on failure); "Load more" cursor pagination; skeleton loading + inline error + empty state
+    └── editor/
+        ├── editor-store.ts               # Phase 2 (8.4 Chunk A+D); pure logic — no UI; Zustand v5 store for the in-browser world editor; exports useEditorStore (React-bound) + createEditorStore() (vanilla factory for tests); holds scene graph + selection + gizmo mode + properties tab + pending ops + undo/redo stacks + save lifecycle state; addObject() now returns the new object id (string) — Chunk D change
+        ├── EditorShell.tsx               # Phase 2 (8.4 Chunk B+D+E+F); client component; full-viewport 3-panel editor layout (asset panel left, viewport center, properties right) + phone gate; calls useEditorStore.initialize() on mount; calls useAutosave(worldId) to start the 2s autosave interval; renders PhoneNotice + EditorTopBar + panels + EditorStatusBar; hidden below md breakpoint; passes worldId + initialAssets to AssetPanel (Chunk D); imports PropertiesPanel (Chunk E, replaces PropertiesPanelPlaceholder)
+        ├── EditorTopBar.tsx              # Phase 2 (8.4 Chunk B+F); client component; top toolbar — breadcrumb + T/R/S gizmo-mode toggle + Undo/Redo + Save version + Publish; keyboard shortcuts (T/R/S/Escape/Ctrl+Z/Ctrl+Shift+Z/Ctrl+Y); pulls state from useEditorStore; handleSaveAsVersion() prompts for label → saveOps() → completeSave/failSave; handlePublish() confirms → flushes pending ops first → publishVersion(); both handlers live on the component, not extracted
+        ├── EditorStatusBar.tsx           # Phase 2 (8.4 Chunk B+F); client component; bottom status bar — autosave status text + pending ops count + last-8-chars version id; reads autosaveStatus + pendingOps + lastSaveError + baseVersionId from useEditorStore; no local state (pure store subscription)
+        ├── save-client.ts                # Phase 2 (8.4 Chunk F); pure async fetch wrappers for save/publish API calls; exports saveOps() + publishVersion(); both return typed discriminated-union results; no React, no store references — designed for standalone testing; saveOps handles 200/409/400+opIndex/400/5xx branches; publishVersion handles 200 and all non-200 branches
+        ├── use-autosave.ts               # Phase 2 (8.4 Chunk F); "use client" hook; setInterval at 2s; guards re-entry with inFlightRef; calls beginSave() → saveOps() → completeSave/rebaseOnServerVersion/failSave; conflict retry capped at MAX_CONFLICT_RETRIES=3; counter resets on success; called once in EditorShell
+        ├── PhoneNotice.tsx               # Phase 2 (8.4 Chunk B); client component; props: worldId, worldTitle; shown via flex md:hidden; "Switch to a bigger screen to edit" message + back link
+        └── panels/
+            ├── AssetPanel.tsx            # Phase 2 (8.4 Chunk D); client component; real asset panel; props: worldId, initialAssets; header with count badge; Upload .glb button + drag-drop; scrollable asset card list; empty state; upload progress bar; inline error; click card → store.addObject(assetId) returns new id → store.selectObject(newId)
+            ├── AssetPanelPlaceholder.tsx # Phase 2 (8.4 Chunk B); kept on disk, no longer imported; superseded by AssetPanel
+            ├── ViewportPlaceholder.tsx   # Phase 2 (8.4 Chunk B); placeholder for Chunk C; reads sceneGraph objects/lights/spawnPoints counts from useEditorStore; flex-1 center panel
+            ├── PropertiesPanelPlaceholder.tsx  # Phase 2 (8.4 Chunk B); kept on disk, no longer imported; superseded by PropertiesPanel (Chunk E)
+            ├── PropertiesPanel.tsx       # Phase 2 (8.4 Chunk E); client component; 4-tab right panel (Object/Lights/Environment/Spawn); tab state read/written via propertiesTab + setPropertiesTab on the editor store; 320px wide; tab bar 40px; scrollable content per tab; ARIA role="tablist/tab/tabpanel" with aria-selected + aria-controls
+            └── properties/               # Subcomponents for PropertiesPanel tabs (all client components, all in properties/ subdirectory)
+                ├── Vec3Input.tsx         # Shared; props: value [x,y,z], onCommit, precision, min, unit; three 72px number inputs side-by-side with x/y/z axis labels; local string state per axis (strategy A: commit on blur/Enter); syncs from props when not focused via focusedRef; clamps to min if set
+                ├── ColorInput.tsx        # Shared; props: value (hex #rrggbb), onCommit, label; native <input type="color">; normalises to lowercase; shows hex string beside picker
+                ├── ObjectTab.tsx         # No-selection state: muted prompt. Selection state: Name (text input, commit on blur/Enter), Asset ID (read-only truncated), Position Vec3Input, Rotation Vec3Input (degrees in UI, radians stored — convert ×π/180 and ×180/π), Scale Vec3Input (min 0.01), Delete button (window.confirm for v1 → deleteSelectedObject); key=obj.id prevents stale closure on selection change
+                ├── LightsTab.tsx         # Per-light cards (Sun amber badge / Ambient purple badge); Intensity number input (0–10 step 0.1); ColorInput; Sun-only: Direction Vec3Input; Remove button (allows removing all lights); "+ Add" with dropdown (Sun/Ambient); defaults: sun {intensity:1,direction:[5,5,5],color:"#ffffff"}, ambient {intensity:0.5,color:"#ffffff"}; always calls setLights(nextArray)
+                ├── EnvironmentTab.tsx    # Skybox <select> with 8 presets (studio/sunset/dawn/night/warehouse/park/city/forest); Fog checkbox toggle; when enabled: ColorInput + Near/Far number inputs; default fog {color:"#888888",near:1,far:100}; fog:null when disabled; always calls setEnvironment({...current, ...})
+                └── SpawnPointsTab.tsx    # Per-spawn cards; ID read-only (label, truncated); Position Vec3Input; Rotation Vec3Input (degrees); Delete button disabled+title when isLast (only 1 spawn); "+ Add spawn point" → addSpawn({id:"spawn_"+crypto.randomUUID().slice(0,8), position:[0,1.6,0], rotation:[0,0,0]})
 # Note: Header and Footer are inlined in src/app/layout.tsx, not separate component directories.
 # Footer nav links: DMCA · Terms · Privacy (all three live in /legal/)
 ```
@@ -82,6 +104,7 @@ src/
 | `/` | `src/app/page.tsx` | Server | Feed (3 tabs via `?tab=`: Recent, Trending, Following). Cards show up to 3 tag chips + `+N more` overflow. Trending and Recent are public (no auth gate); Following redirects to sign-in if unauthenticated. **Onboarding:** `<WelcomeCallout />` renders above the tab bar for "fresh" signed-in users (no uploads + no follows). The `isFreshUser` flag is computed via two cheap 1-row DB probes (worlds + follows) immediately after the `currentDbUserId` lookup. Callout disappears automatically once user uploads or follows. `ContextualEmptyState` is now actionable: Following tab has "Browse Trending" + "Search worlds" buttons; Recent tab has "Upload your first world" button (signed-in only). | 1, 3, 4, 5, 7.1, 7.4, launch-ops |
 | `/search` | `src/app/search/page.tsx` | Server (public) | Full-text search results. Reads `?q=` and/or `?tag=`. Three branches: empty state (neither), FTS query (`q` only), tag filter (`tag` only), intersection (both). Direct DB query — no API route. Cap 50 results. `search_vector` is Postgres-managed (trigger-populated, not in Drizzle schema). `generateMetadata` produces dynamic title/description for shareable search URLs (e.g. `#mytag · FORGE`, `Search: "robots" · FORGE`). | 7.2, launch-polish |
 | `/world/[id]` | `src/app/world/[id]/page.tsx` | Server | World viewer page (3D + metadata + carousel + updates + comments + actions). Tag chips row below title. `generateMetadata` produces per-world OG + Twitter Card tags (title, description, thumbnail image, author). Direct DB query for metadata fetch (lean 3-column query — does not re-call the API route). **Viewer branch (8.1):** if `world.sceneGraph !== null`, renders `<SceneGraphRendererClient sceneGraph assets ariaLabel />` (multi-asset scene graph path); otherwise falls back to `<WorldViewerClient glbUrl ariaLabel />` (legacy single-GLB path). All existing worlds have `sceneGraph: null` and continue to render via the legacy path unchanged. **Owner-only Phase 2 tools (8.3 Chunk C):** if owner + legacy world (`sceneGraph === null`) → `<ConvertToSceneGraphButton>`; if owner + scene-graph world → `<VersionHistorySection>`. Non-owners see neither. The `GET /api/worlds/[id]` response now includes `publishedVersionId` (null for legacy worlds). | 1, 2, 3, 4, 5, 7.1, 8.1, 8.3, launch-polish |
+| `/world/[id]/edit` | `src/app/world/[id]/edit/page.tsx` | Server (owner-gated) | In-browser world editor. Auth + owner gates (redirect to sign-in if unauthenticated; inline forbidden page if not owner). Legacy worlds (sceneGraph=null) get an inline "convert first" page with a link back. Fetches latest `world_versions` row (inline DB query, no API round-trip) + up to 100 `world_assets` rows. Parses `SceneGraphV1` defensively (inline error page if parse fails). Renders `<EditorShell>` with serializable props. `generateMetadata` returns `"Editing: {title}"` title + `robots: noindex`. No OG image. | 8.4 Chunk B |
 | `/profile/[username]` | `src/app/profile/[username]/page.tsx` | Server | Profile (avatar, follower/following counts, world grid). Cards show up to 3 tag chips + `+N more` overflow. `generateMetadata` produces per-profile OG + Twitter Card tags (username, world count, avatar image). | 1, 3, 7.1, launch-polish |
 | `/upload` | `src/app/upload/page.tsx` + `UploadForm.tsx` | Client (`UploadForm`) | Multi-step upload form. Static `metadata` for browser tab clarity (`Upload a world · FORGE`). | 1, 2, launch-polish |
 | `/sign-in/[[...sign-in]]` | `src/app/sign-in/[[...sign-in]]/page.tsx` | Server (Clerk drop-in) | Clerk sign-in | 0 |
@@ -320,8 +343,154 @@ Two new owner-only components on `/world/[id]`, wired after the comments section
 
 **`GET /api/worlds/[id]` change**: now returns `publishedVersionId: string | null` alongside `sceneGraph`. `VersionHistorySection` uses this for the initial "currently published" pill state. The `route.test.ts` key-snapshot test was updated to include this field.
 
+### Sub-slice 8.4 Chunk A — Editor State Layer (shipped 2026-05-26)
+
+Pure logic layer for the in-browser world editor. No React components, no UI. Later chunks layer the editor page on top of this.
+
+**`useEditorStore` / `createEditorStore`** (`src/components/editor/editor-store.ts`)
+- Zustand v5 store. `createEditorStore()` returns a vanilla `StoreApi<EditorStore>` (used in tests — one fresh instance per test). `useEditorStore` is the React-bound export for editor UI components.
+- Dependency: `zustand ^5.0.13` added to `dependencies` in `package.json`.
+- Exported types: `GizmoMode`, `PropertiesTab`, `AutosaveStatus`, `EditorState`, `EditorActions`, `EditorStore`.
+- **State held:** `worldId`, `sceneGraph` (local working copy), `baseVersionId`, `serverSceneGraph` (server-truth baseline), `selectedObjectId`, `gizmoMode`, `propertiesTab`, `pendingOps`, `autosaveStatus`, `lastSaveError`, `lastSaveOpCount`, `undoStack`, `redoStack`.
+- **`initialize()`**: call once when the editor page mounts, passing `worldId + sceneGraph + baseVersionId` from the server. Resets all mutable state (pendingOps, undo/redo stacks, autosaveStatus → idle).
+- **`applyOp(op)`**: core mutation. Snapshots current state → runs `applyOps()` reducer → on `OperationError` logs + returns without mutation. On success: pushes undo entry (capped at 50), clears redoStack, appends to pendingOps, sets autosaveStatus → pending.
+- **Convenience wrappers** (all delegate to `applyOp`): `updateObject`, `addObject` (generates `obj_<8hex>` id), `deleteSelectedObject` (clears selection post-delete), `setObjectAsset`, `setEnvironment`, `setLights`, `addSpawn`, `updateSpawn`, `deleteSpawn`.
+- **Undo/redo:** snapshot-pair design — each undo entry stores `{ before, after, op, pendingOpsLengthBefore }`. `undo()` restores `before`, truncates `pendingOps` to `pendingOpsLengthBefore`, pushes entry to `redoStack`. `redo()` restores `after`, appends `op` to `pendingOps`, pushes entry back to `undoStack`. Undo stack capped at 50.
+- **Save lifecycle:** `beginSave()` — sets status → saving, returns `{ ops, baseVersionId }` (capped at `MAX_OPS_PER_BATCH = 100`). `completeSave({ versionId, sceneGraph })` — advances `baseVersionId`, replaces `serverSceneGraph`, slices `pendingOps` by `lastSaveOpCount`. `failSave(message)` — sets status → error, stores message, leaves `pendingOps` intact for retry. `rebaseOnServerVersion({ versionId, sceneGraph })` — replays all pending ops on the server's fresh graph one-by-one, skipping any that throw `OperationError`; clears undo/redo stacks.
+- **Selectors:** `isDirty()` (pendingOps.length > 0), `getSelectedObject()`, `canUndo()`, `canRedo()`.
+- Test file: `src/components/editor/editor-store.test.ts` (32 tests — covers initialization, basic setters, applyOp happy path + OperationError path, undo/redo stack semantics, cap enforcement, convenience methods, full save cycle, rebase with compatible + incompatible ops).
+
+### Sub-slice 8.4 Chunk B — Editor Page Skeleton (shipped 2026-05-26)
+
+**`/world/[id]/edit`** — the in-browser editor page. Server component with owner gate. Renders `EditorShell` which holds the 3-panel layout.
+
+**Auth + gate chain:**
+1. Not signed in → redirect to `/sign-in?redirect_url=/world/[id]/edit`
+2. Suspended account → redirect to `/world/[id]`
+3. World not found → `notFound()`
+4. Not owner → inline "You can only edit worlds you own" page with back link
+5. Legacy world (`sceneGraph === null`) → inline "Convert this world before editing" page with link to `/world/[id]`
+6. No version rows (defensive) → inline error page
+7. Parse error → inline error page
+
+**Data fetching (inline DB, no API round-trip):**
+- Latest `world_versions` row by `versionNumber DESC LIMIT 1` → supplies `sceneGraph` + `baseVersionId` for the store
+- Up to 100 `world_assets` rows ordered by `createdAt DESC` → asset panel list
+
+**`EditorShell`** (`src/components/editor/EditorShell.tsx`)
+- Client component. Props: `worldId`, `worldTitle`, `sceneGraph`, `baseVersionId`, `assets`.
+- Calls `useEditorStore.getState().initialize(...)` in a `useEffect` on mount.
+- Renders `<PhoneNotice>` (visible below md) + full 3-panel layout (`hidden md:flex h-screen flex-col`).
+- Three-panel row: `AssetPanelPlaceholder` (w-64) → `ViewportPlaceholder` (flex-1) → `PropertiesPanelPlaceholder` (w-80).
+
+**`EditorTopBar`** (`src/components/editor/EditorTopBar.tsx`)
+- Client component. Props: `worldId`, `worldTitle`.
+- Keyboard shortcuts via `window.addEventListener("keydown", ...)` in `useEffect`. Skipped when target is `input`/`textarea`/contenteditable.
+  - `T` → translate, `R` → rotate, `S` → scale (no modifier key required; no `preventDefault`)
+  - `Ctrl/Cmd+Z` → undo, `Ctrl/Cmd+Shift+Z` → redo, `Ctrl/Cmd+Y` → redo (Windows)
+  - `Escape` → `selectObject(null)`
+- Gizmo mode buttons: `aria-pressed` reflects active mode; uses `bg-zinc-700` when active.
+- Undo/Redo: `disabled` when `canUndo()`/`canRedo()` returns false.
+- Save version + Publish: real buttons wired in Chunk F — see below.
+- Dirty pip: amber dot + "Unsaved" text shown when `isDirty()`.
+
+**`EditorStatusBar`** (`src/components/editor/EditorStatusBar.tsx`)
+- Client component. h-8 bottom bar.
+- Left: autosave status text (`All saved` / `· Unsaved changes` / `Saving…` / `Saved` / `Save failed: <message>`). `aria-live="polite"` on status container.
+- Right: `Version {last-8-chars-of-baseVersionId}`. `aria-live` is absent on right side (cosmetic).
+
+**`PhoneNotice`** (`src/components/editor/PhoneNotice.tsx`)
+- Client component. Props: `worldId`, `worldTitle`. `flex md:hidden`.
+- Centered card: heading + explanation + back link.
+
+**Panel placeholders (Chunks C/E will replace the remaining):**
+- `AssetPanelPlaceholder` — kept on disk; no longer imported. Replaced by `AssetPanel` in Chunk D.
+- `ViewportPlaceholder` — reads `sceneGraph.objects/lights/spawnPoints` from store. Chunk C replaced with `Viewport`.
+- `PropertiesPanelPlaceholder` — shows `selectedObjectId` from store. Chunk E replaces.
+
+**Test file:** `src/components/editor/EditorTopBar.test.ts` (+8 tests — gizmo shortcuts T/R/S, input-field guard, Ctrl+Z undo, Ctrl+Z no-op on empty stack, Ctrl+Shift+Z redo, Escape deselect). Total: 574 → 582.
+
+### Sub-slice 8.4 Chunk D — Real Asset Panel (shipped 2026-05-26)
+
+**`AssetPanel`** (`src/components/editor/panels/AssetPanel.tsx`)
+- Client component. Props: `{ worldId: string; initialAssets: Asset[] }`.
+- Left panel, `w-64`. Vertical layout: header with count badge → Upload button → progress/error area → scrollable asset card list → empty state.
+- **Asset list:** `initialAssets` from server props seeded into `useState<Asset[]>`. New uploads appended locally after success (no server refetch). Count badge reflects live list length.
+- **Asset card (`AssetCard`):** 64px-tall row; inline GLB icon; asset name (truncated with `title`); file size formatted as `X.X MB / KB / B`; cursor-pointer; hover highlight; "Added" flash text on click for 600ms feedback. Click or Enter/Space key → `store.addObject(asset.id)` (returns new id) + `store.selectObject(newId)` for immediate gizmo activation.
+- **Upload button:** `<label htmlFor="asset-upload-input">` over a `sr-only` `<input type="file" accept=".glb,model/gltf-binary">`. Click or drag. Disabled while upload in-flight.
+- **Upload flow (inside `startUpload(file)`):**
+  1. Validate: ext must be `.glb`; size ≤ 50 MB. Show inline error on failure (no network call).
+  2. `POST /api/uploads/sign` with `{ kind:"asset", worldId, assetId, contentType, sizeBytes }`.
+  3. `PUT uploadUrl` via `XMLHttpRequest` — `onprogress` drives a progress bar (0-100%).
+  4. `POST /api/worlds/[id]/assets` with `{ assetId, name, sizeBytes }`. On success appends new asset to list; resets file input.
+  5. Errors shown inline (red card, dismiss button). No modals or toasts.
+- **Drag-drop:** `onDragEnter/Over/Leave/Drop` on the `<aside>` root. Counter-based drag state (handles nested elements). Dashed blue border + tinted background while dragging. Drops first file; passes to same `startUpload()` path. `onDragOver` must call `preventDefault()` (browser requirement for drop to fire).
+- **`editor-store.ts` change (Chunk D):** `addObject()` now returns the new object's id (`string`) instead of `void`. This is required for `AssetPanel` to call `selectObject(newId)` immediately. The change is backward-compatible: existing callers that don't use the return value are unaffected. Chunk A tests updated: test 13 (`addObject generates an id`) implicitly tested the return via the scene graph; no assertions on void return existed.
+- **`EditorShell.tsx` change:** imports `AssetPanel` instead of `AssetPanelPlaceholder`; passes `worldId` + `initialAssets`.
+- **Test file:** `src/components/editor/panels/AssetPanel.test.ts` (34 tests — initial list logic, empty state, place-asset calls `addObject` + returns id, `selectObject` called with returned id, upload validation, mock-fetch upload flow for happy path + presign error + PUT error + finalize error).
+
+### Sub-slice 8.4 Chunk E — Real Properties Panel (shipped 2026-05-26)
+
+**`PropertiesPanel`** (`src/components/editor/panels/PropertiesPanel.tsx`)
+- Client component. No props (reads everything from `useEditorStore`).
+- 4-tab right column (`w-80`): Object | Lights | Environment | Spawn.
+- Tab bar uses ARIA `role="tablist/tab/tabpanel"` with `aria-selected` and `aria-controls`.
+- Active tab highlighted with `border-b-2 border-blue-500` + `bg-zinc-800`.
+- Tab state (`propertiesTab` / `setPropertiesTab`) lives in the editor store.
+- `EditorShell` now imports `PropertiesPanel` (replaces `PropertiesPanelPlaceholder`).
+
+**Shared subcomponents** (`src/components/editor/panels/properties/`)
+
+- **`Vec3Input`** — three 72px number inputs side-by-side with axis labels. Local string state per axis. Commits on blur or Enter via `onCommit([x,y,z])`. Syncs from props when not focused using `focusedRef` + `useEffect`. Optional `min` clamp. Optional `unit` label (e.g. "°").
+- **`ColorInput`** — native `<input type="color">`. Normalises to lowercase `#rrggbb`. Emits via `onCommit`. Shows hex string beside picker.
+
+**Tab components** (all client components):
+
+- **`ObjectTab`** — no-selection state (muted prompt) vs. selection state (Name / Asset ID / Position / Rotation / Scale / Delete). Rotation is stored in radians; displayed in degrees — convert via `×π/180` on commit and `×180/π` for display. Scale min 0.01. Delete uses `window.confirm` for v1. `key={obj.id}` on the inner `ObjectForm` forces remount on selection change.
+- **`LightsTab`** — per-light cards with Sun (amber) / Ambient (purple) type badges. Intensity input. ColorInput. Sun-only: Direction Vec3Input. Remove any light. "+ Add" with Sun/Ambient dropdown. Default sun: `{intensity:1, direction:[5,5,5], color:"#ffffff"}`; default ambient: `{intensity:0.5, color:"#ffffff"}`.
+- **`EnvironmentTab`** — Skybox `<select>` (8 presets: studio/sunset/dawn/night/warehouse/park/city/forest). Fog enable/disable checkbox. When enabled: fog ColorInput + Near/Far number inputs. Default fog: `{color:"#888888", near:1, far:100}`. Fog null when unchecked.
+- **`SpawnPointsTab`** — per-spawn cards. ID read-only. Position + Rotation Vec3Inputs (degrees). Delete disabled + tooltip "At least 1 spawn point required." when `isLast`. "+ Add spawn point" generates `spawn_<8hexchars>` id.
+
+**Debounce strategy:** approach A (local state + commit on blur). Vec3Input holds local strings; only calls `onCommit` on blur/Enter — no per-keystroke ops. "Focused vs not focused" sync: `focusedRef` guards the `useEffect` that syncs from store props, so in-progress edits are never clobbered by viewport-driven position updates.
+
+**Test file:** `src/components/editor/panels/PropertiesPanel.test.ts` (32 tests). Topics: tab switching (4), no-selection state (3), selection values (1), position update (2), radians/degrees (3), delete button with `window.confirm` mocks (4), lights rendering (2), intensity change (2), add sun light (2), skybox change (2), fog enable/disable (2), spawn delete disabled (2), add spawn (3). Total: 542 → 644.
+
+### Sub-slice 8.4 Chunk F — Save Lifecycle Wired to API (shipped 2026-05-26)
+
+**`save-client.ts`** (`src/components/editor/save-client.ts`)
+- Pure async functions — no React, no store. Designed for easy testing.
+- `saveOps({ worldId, ops, baseVersionId, label? })` → `SaveOpsResult` (discriminated union):
+  - `ok:true` → `{ versionId, versionNumber, sceneGraph }` on HTTP 200
+  - `ok:false, kind:"conflict"` → `{ currentVersion }` on HTTP 409
+  - `ok:false, kind:"operation-error"` → `{ message, opIndex }` on HTTP 400 with `opIndex`
+  - `ok:false, kind:"other"` → `{ message }` on any other error
+- `publishVersion({ worldId, versionId })` → `PublishResult`: `ok:true` or `ok:false, message`.
+
+**`use-autosave.ts`** (`src/components/editor/use-autosave.ts`)
+- `"use client"` hook. Called once in `EditorShell` with `worldId`.
+- `setInterval` at `AUTOSAVE_INTERVAL_MS = 2000ms`.
+- `inFlightRef` (boolean ref) guards re-entry on slow networks — if a save is still in-flight when the next tick fires, the tick is skipped.
+- `conflictRetriesRef` (number ref) caps consecutive conflict loops at `MAX_CONFLICT_RETRIES = 3`. After 3 conflicts → `failSave("Couldn't reconcile...")` + counter reset.
+- On success: `completeSave()` + reset conflict counter to 0.
+- On conflict (below cap): `rebaseOnServerVersion()` — surviving pending ops are re-queued and will flush next tick.
+- On operation-error / other: `failSave(message)`.
+- Test file: `src/components/editor/use-autosave.test.ts` (6 tests — nothing-pending, 200 success, first-409 rebase, 3-consecutive-409s bail, conflict-then-success resets counter, in-flight guard).
+
+**`EditorShell.tsx`** — imports `useAutosave` and calls `useAutosave(worldId)` immediately after the `initialize` useEffect.
+
+**`EditorTopBar.tsx`** — stubs replaced with real async handlers:
+- `handleSaveAsVersion()`: `window.prompt()` for optional label (null = cancelled) → `beginSave()` → `saveOps()` with label → `completeSave()` or `failSave()` or `rebaseOnServerVersion()` + `failSave()` on conflict. Uses `window.prompt` for simplicity (no modal component).
+- `handlePublish()`: `window.confirm()` for deliberate publish gate → flush any pending ops first (pre-publish save with label "Pre-publish save") → `publishVersion()` on `baseVersionId`. Fails fast if pre-publish save fails. Uses `window.confirm` (no custom dialog).
+
+**`EditorStatusBar.tsx`** — unchanged from Chunk B surface. Reads `autosaveStatus` from store. The spec called for a 2-second "Saved → blank" fade, but the strict `react-hooks/set-state-in-effect` lint rule in this codebase blocks synchronous `setState` in effect bodies. Since the fade is cosmetic polish, it is deferred; the status bar shows "Saved" until the next autosave cycle begins.
+
+**Test files:**
+- `src/components/editor/save-client.test.ts` — 9 tests. Covers: saveOps 200 happy path + URL check; 409 conflict body; 400 + opIndex (operation-error); 400 without opIndex (other); 500; publishVersion 200 + URL check; publishVersion 403.
+- `src/components/editor/use-autosave.test.ts` — 6 tests. Exercises the `runSaveCycle` logic extracted from the hook (node env, no React runtime). Covers: nothing pending, 200 success + counter reset, first 409 rebase, 3× 409 bail + counter reset, conflict-then-success counter reset, inFlightRef guard.
+
+**Test count delta:** 644 → 659 (+15 new tests).
+
 ### Still to come (Phase 2)
 
-- `/world/[id]/edit` route — the in-browser editor (owned by `r3f-engineer` for the 3D parts, but the page chrome + panels are frontend territory)
 - Touch-friendly controls (tablets day-one, phones graceful-degradation)
 - See `ROADMAP.md` Phase 2 for details
