@@ -1,6 +1,9 @@
 "use client";
 
+import { useOthers } from "@liveblocks/react";
 import { useEditorStore } from "./editor-store";
+import type { UserPresence } from "@/lib/liveblocks/types";
+import { isEditor } from "@/lib/liveblocks/types";
 
 /**
  * EditorStatusBar — bottom h-8 bar showing autosave status + version id.
@@ -20,6 +23,14 @@ export function EditorStatusBar() {
   const lastSaveError = useEditorStore((s) => s.lastSaveError);
   const baseVersionId = useEditorStore((s) => s.baseVersionId);
 
+  // Count of OTHER users whose presence mode is "editor".
+  // Visitors in walk mode share the same room but are not counted here.
+  const others = useOthers();
+  const editorCount = others.filter((o) => {
+    const presence = o.presence as unknown as UserPresence | null;
+    return isEditor(presence);
+  }).length;
+
   // Short version id — last 8 chars
   const shortVersion = baseVersionId ? baseVersionId.slice(-8) : "—";
 
@@ -28,8 +39,19 @@ export function EditorStatusBar() {
       className="h-8 shrink-0 flex items-center justify-between px-4 border-t border-zinc-800 bg-zinc-950 text-xs text-zinc-500"
       aria-label="Editor status bar"
     >
-      {/* Left: save status */}
+      {/* Left: collaborator count + save status */}
       <div className="flex items-center gap-3" role="status" aria-live="polite">
+        {/* Collaborator presence text — muted, leftmost slot */}
+        <span className="text-zinc-600 shrink-0">
+          {editorCount === 0
+            ? "Just you editing"
+            : editorCount === 1
+            ? "1 other editor here"
+            : `${editorCount} other editors here`}
+        </span>
+
+        <span aria-hidden className="text-zinc-700">&middot;</span>
+
         {autosaveStatus === "error" ? (
           <span className="flex items-center gap-1.5 text-red-400">
             <span aria-hidden>!</span>

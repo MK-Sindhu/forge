@@ -80,14 +80,16 @@ src/
     ├── world-visitor/
     │   └── ChatPanel.tsx              # "use client"; Slice 9.3 Chunk 6; in-world chat overlay; fixed bottom-right 320×240px; bg-black/60 backdrop-blur-sm z-40; renders in WorldVisitor outside the Canvas (sibling to MobileJoysticks); useBroadcastEvent+useEventListener for ephemeral Liveblocks chat; T focuses input, ESC blurs; exports pure helpers submitChat+appendIncoming+constants for unit testing
     ├── liveblocks/
-    │   └── LiveblocksRoomProvider.tsx  # "use client"; Slice 9.3; wraps WorldVisitorClient with <LiveblocksProvider authEndpoint={fn}> + <RoomProvider id={worldRoomId(worldId)} initialPresence={...}>; props: worldId, children; auth callback always sends guestId (strategy a); useMemo on authEndpoint; SSR-safe (no dynamic wrapper)
+    │   └── LiveblocksRoomProvider.tsx  # "use client"; Slice 9.3 / updated 10.1 Chunk 1; wraps WorldVisitorClient (or EditorShell) with <LiveblocksProvider authEndpoint={fn}> + <RoomProvider id={worldRoomId(worldId)} initialPresence={...}>; props: worldId, initialPresence (UserPresence — required), children; auth callback always sends guestId (strategy a); useMemo on authEndpoint; SSR-safe (no dynamic wrapper); visitor page passes INITIAL_VISITOR_PRESENCE, editor page will pass INITIAL_EDITOR_PRESENCE
     └── editor/
-        ├── editor-store.ts               # Phase 2 (8.4 Chunk A+D); pure logic — no UI; Zustand v5 store for the in-browser world editor; exports useEditorStore (React-bound) + createEditorStore() (vanilla factory for tests); holds scene graph + selection + gizmo mode + properties tab + pending ops + undo/redo stacks + save lifecycle state; addObject() now returns the new object id (string) — Chunk D change
-        ├── EditorShell.tsx               # Phase 2 (8.4 Chunk B+D+E+F); client component; full-viewport 3-panel editor layout (asset panel left, viewport center, properties right) + phone gate; calls useEditorStore.initialize() on mount; calls useAutosave(worldId) to start the 2s autosave interval; renders PhoneNotice + EditorTopBar + panels + EditorStatusBar; hidden below md breakpoint; passes worldId + initialAssets to AssetPanel (Chunk D); imports PropertiesPanel (Chunk E, replaces PropertiesPanelPlaceholder)
-        ├── EditorTopBar.tsx              # Phase 2 (8.4 Chunk B+F); client component; top toolbar — breadcrumb + T/R/S gizmo-mode toggle + Undo/Redo + Save version + Publish; keyboard shortcuts (T/R/S/Escape/Ctrl+Z/Ctrl+Shift+Z/Ctrl+Y); pulls state from useEditorStore; handleSaveAsVersion() prompts for label → saveOps() → completeSave/failSave; handlePublish() confirms → flushes pending ops first → publishVersion(); both handlers live on the component, not extracted
-        ├── EditorStatusBar.tsx           # Phase 2 (8.4 Chunk B+F); client component; bottom status bar — autosave status text + pending ops count + last-8-chars version id; reads autosaveStatus + pendingOps + lastSaveError + baseVersionId from useEditorStore; no local state (pure store subscription)
+        ├── editor-store.ts               # Phase 2 (8.4 Chunk A+D) + Slice 10.1 Chunk 4; pure logic — no UI; Zustand v5 store for the in-browser world editor; exports useEditorStore (React-bound) + createEditorStore() (vanilla factory for tests); holds scene graph + selection + gizmo mode + properties tab + pending ops + undo/redo stacks + save lifecycle state + lastRebaseNotice (RebaseNotice | null); addObject() now returns the new object id (string) — Chunk D change; RebaseNotice interface + setRebaseNotice() action added in Chunk 4; initialize() resets lastRebaseNotice to null
+        ├── RebaseToast.tsx               # Slice 10.1 Chunk 4; "use client"; floating bottom-center pill (z-50, bottom-20) shown for 5s after a silent autosave rebase-on-409; reads lastRebaseNotice from editor store; auto-dismiss via two-effect pattern (Effect 1 resets dismissed when noticeAt changes, Effect 2 sets timer with setState in callback — not effect body — to satisfy react-hooks/set-state-in-effect); clears store notice after dismiss; role="status" aria-live="polite"; mounted in EditorShell as sibling to ChatPanel
+        ├── EditorCollaborators.tsx       # Slice 10.1 Chunk 3; "use client"; avatar stack showing other editors in the room; filters useOthers() via isEditor(); up to 4 circles + "+N" pill; each 28px circle has colored ring + Image or initials fallback; renders null when 0 remote editors; mounted in EditorTopBar right gutter (hidden xl:flex)
+        ├── EditorShell.tsx               # Phase 2 (8.4 Chunk B+D+E+F) + Slice 10.1 Chunk 3+4; client component; full-viewport 3-panel editor layout (asset panel left, viewport center, properties right) + phone gate; calls useEditorStore.initialize() on mount; calls useAutosave(worldId) to start the 2s autosave interval; renders PhoneNotice + EditorTopBar + panels + EditorStatusBar + ChatPanel (fixed bottom-right overlay) + RebaseToast (fixed bottom-center, Chunk 4); hidden below md breakpoint; passes worldId + initialAssets to AssetPanel (Chunk D); imports PropertiesPanel (Chunk E, replaces PropertiesPanelPlaceholder)
+        ├── EditorTopBar.tsx              # Phase 2 (8.4 Chunk B+F) + Slice 10.1 Chunk 3; client component; top toolbar — breadcrumb + T/R/S gizmo-mode toggle + Undo/Redo + EditorCollaborators (xl+) + Save version + Publish; keyboard shortcuts (T/R/S/Escape/Ctrl+Z/Ctrl+Shift+Z/Ctrl+Y); pulls state from useEditorStore; handleSaveAsVersion() prompts for label → saveOps() → completeSave/failSave; handlePublish() confirms → flushes pending ops first → publishVersion(); both handlers live on the component, not extracted
+        ├── EditorStatusBar.tsx           # Phase 2 (8.4 Chunk B+F) + Slice 10.1 Chunk 3; client component; bottom status bar — editor count text + autosave status text + pending ops count + last-8-chars version id; reads autosaveStatus + pendingOps + lastSaveError + baseVersionId from useEditorStore; uses useOthers()+isEditor() for collaborator count ("Just you editing" / "N other editor(s) here"); no local state (pure store subscription)
         ├── save-client.ts                # Phase 2 (8.4 Chunk F); pure async fetch wrappers for save/publish API calls; exports saveOps() + publishVersion(); both return typed discriminated-union results; no React, no store references — designed for standalone testing; saveOps handles 200/409/400+opIndex/400/5xx branches; publishVersion handles 200 and all non-200 branches
-        ├── use-autosave.ts               # Phase 2 (8.4 Chunk F); "use client" hook; setInterval at 2s; guards re-entry with inFlightRef; calls beginSave() → saveOps() → completeSave/rebaseOnServerVersion/failSave; conflict retry capped at MAX_CONFLICT_RETRIES=3; counter resets on success; called once in EditorShell
+        ├── use-autosave.ts               # Phase 2 (8.4 Chunk F) + Slice 10.1 Chunk 4; "use client" hook; setInterval at 2s; guards re-entry with inFlightRef; calls beginSave() → saveOps() → completeSave/rebaseOnServerVersion/failSave; conflict retry capped at MAX_CONFLICT_RETRIES=3; counter resets on success; called once in EditorShell; Chunk 4: after rebaseOnServerVersion() call, sets lastRebaseNotice({ authorName: null, at: Date.now() }) so RebaseToast surfaces it
         ├── PhoneNotice.tsx               # Phase 2 (8.4 Chunk B); client component; props: worldId, worldTitle; shown via flex md:hidden; "Switch to a bigger screen to edit" message + back link
         └── panels/
             ├── AssetPanel.tsx            # Phase 2 (8.4 Chunk D); client component; real asset panel; props: worldId, initialAssets; header with count badge; Upload .glb button + drag-drop; scrollable asset card list; empty state; upload progress bar; inline error; click card → store.addObject(assetId) returns new id → store.selectObject(newId)
@@ -599,7 +601,7 @@ Three new components wired into `/world/[id]` and `/profile/[username]`.
 Sets up the two-layer Liveblocks React context that Chunk 5 (PresenceLayer) and Chunk 6 (ChatOverlay) depend on.
 
 **`LiveblocksRoomProvider`** (`src/components/liveblocks/LiveblocksRoomProvider.tsx`)
-- `"use client"` component. Props: `{ worldId: string; children: React.ReactNode }`.
+- `"use client"` component. Props: `{ worldId: string; initialPresence: UserPresence; children: React.ReactNode }`.
 - Two-layer wrap (v3.19 canonical pattern):
   - Outer: `<LiveblocksProvider authEndpoint={fn}>` — sets up auth + Liveblocks client. Auth function is a custom callback (not a plain URL string) so `guestId` can be injected into the request body alongside the room id.
   - Inner: `<RoomProvider id={worldRoomId(worldId)} initialPresence={...}>` — joins the specific world's room.
@@ -607,32 +609,44 @@ Sets up the two-layer Liveblocks React context that Chunk 5 (PresenceLayer) and 
 - Auth fallback: the Liveblocks `AuthEndpoint` type signature has `room?: string` (optional), so the callback accepts optional `room` and falls back to `worldId` if the SDK passes `undefined`.
 - `authEndpoint` wrapped in `useMemo([worldId])` so the function reference is stable across re-renders.
 - SSR-safe: `LiveblocksProvider` renders `{children}` without opening any WebSocket on the server; effects run only on the client. No `dynamic({ ssr: false })` wrapper needed — confirmed clean build.
-- `initialPresence`: `{ position: null, yaw: 0, pitch: 0, inWalkMode: false }`. Users are connected to the room as soon as the world page mounts — before clicking "Enter world". Their presence has `position: null` / `inWalkMode: false`. Chunk 5's `PresenceLayer` skips rendering an avatar for any user with `position === null`, so preview-mode users are invisible in the 3D scene. This is the correct behaviour.
-- **TypeScript note:** `initialPresence` uses `satisfies VisitorPresence` (not `: VisitorPresence`). `RoomProvider` expects `initialPresence: JsonObject | undefined`, and `VisitorPresence` lacks the index signature `[string]: unknown` required by `JsonObject`. The `satisfies` preserves type-checking while allowing the value to be inferred as a structurally compatible object. The `Liveblocks.Presence = VisitorPresence` global augmentation in `types.d.ts` wires the hooks correctly at the hook-call level.
+- **`initialPresence` prop (updated in Slice 10.1 Chunk 1):** changed from a hardcoded `VisitorPresence` literal to a required `UserPresence` prop. The caller decides which presence shape to inject. Visitor page passes `INITIAL_VISITOR_PRESENCE`; editor page (Chunk 2) will pass `INITIAL_EDITOR_PRESENCE`. `RoomProvider` expects a `JsonObject`; `UserPresence` is cast with `as any` at the JSX boundary (safe — all union members are JSON-serializable; the global augmentation wires hooks correctly).
 - No tests: the component is a thin provider shell with no logic seams. The auth callback is covered by the API route's test file (`src/app/api/liveblocks/auth/route.test.ts` in Chunk 3).
 
-**`src/lib/liveblocks/types.d.ts`** (new)
+**`src/lib/liveblocks/types.ts`** (updated in Slice 10.1 Chunk 1 from pure VisitorPresence to discriminated union)
+- `VisitorPresence` now has a `mode: "visitor"` field.
+- New `EditorPresence` interface: `mode: "editor"`, `cursorWorldPos`, `selectedObjectId`, `gizmoMode`. No camera position in v1 — deferred per Slice 10.1 §8.
+- `UserPresence = VisitorPresence | EditorPresence` — the union type used everywhere.
+- `INITIAL_VISITOR_PRESENCE` and `INITIAL_EDITOR_PRESENCE` exported as named constants — single source of truth for both pages.
+- `isWalkingVisitor(p)` type guard — true iff visitor + inWalkMode + non-null position. Used by `PresenceLayer`.
+- `isEditor(p)` type guard — true iff editor mode. Used by `EditorPresenceLayer` (Chunk 2).
+
+**`src/lib/liveblocks/types.d.ts`** (shipped 9.3; global augmentation updated in Slice 10.1 Chunk 1)
 - Pure TypeScript declaration file (no runtime import needed). Placed alongside `types.ts` in `src/lib/liveblocks/`.
 - Augments the `Liveblocks` global interface declared by `@liveblocks/core`:
   ```ts
   interface Liveblocks {
-    Presence: VisitorPresence;
+    Presence: UserPresence;          // discriminated union (visitor | editor)
     UserMeta: { id: string; info: VisitorUserInfo };
     RoomEvent: RoomEvent;
-    Storage: Record<string, never>; // no shared storage in v1
+    Storage: Record<string, never>;  // no shared storage in v1
   }
   ```
 - Once in scope (TypeScript picks up `.d.ts` files inside `src/` automatically), all hooks from `@liveblocks/react` are fully typed:
-  - `useMyPresence()` → `[VisitorPresence, (patch) => void]`
-  - `useOthers()` → `User<VisitorPresence, { id: string; info: VisitorUserInfo }>[]`
+  - `useMyPresence()` → `[UserPresence, (patch) => void]`
+  - `useOthers()` → `User<UserPresence, { id: string; info: VisitorUserInfo }>[]`
   - `useBroadcastEvent()` → `(event: RoomEvent) => void`
   - `useEventListener(cb)` → `cb` receives `RoomEvent`
 - Chose `.d.ts` file over appending to `types.ts`: keeps type augmentation separate from runtime code; no import side-effects needed.
 
 **Page wiring — `src/app/world/[id]/page.tsx`**
-- Added `import { LiveblocksRoomProvider }` from the new component file.
-- Scene-graph world branch (`world.sceneGraph !== null`): `<WorldVisitorClient>` is now wrapped with `<LiveblocksRoomProvider worldId={world.id}>`.
+- Imports `INITIAL_VISITOR_PRESENCE` from `@/lib/liveblocks/types`.
+- Scene-graph world branch: `<WorldVisitorClient>` wrapped with `<LiveblocksRoomProvider worldId={world.id} initialPresence={INITIAL_VISITOR_PRESENCE}>`.
 - Legacy world branch (`sceneGraph === null`): `<WorldViewerClient>` is NOT wrapped — legacy worlds don't support walk mode so presence is irrelevant.
+
+**PresenceLayer update (Slice 10.1 Chunk 1)**
+- Replaced manual `!presence?.position` + `!presence.inWalkMode` guard with `isWalkingVisitor(presence)` call.
+- Casts `other.presence` to `UserPresence | null` (was `VisitorPresence`).
+- Editor-mode presence entries naturally fail the `isWalkingVisitor` guard and are skipped — the visitor viewport remains clean even if editors are in the same Liveblocks room.
 
 ### Slice 9.3 Chunk 6 — In-world Chat Overlay (shipped 2026-05-26)
 
@@ -699,8 +713,74 @@ Ephemeral in-world chat panel rendered as a DOM sibling to `<MobileJoysticks>` i
 
 **Test count delta:** 786 → 799 (+13).
 
-### Still to come (Phase 2 / Slice 9)
+### Slice 10.1 Chunk 3 — Editor presence UI + Chat in editor (shipped 2026-05-27)
+
+Three editor-UI additions that expose Liveblocks presence + chat outside the 3D viewport.
+
+**`EditorCollaborators`** (`src/components/editor/EditorCollaborators.tsx`)
+- `"use client"` component. No props — reads `useOthers()` from Liveblocks context.
+- Filters `useOthers()` results with `isEditor(presence)` (cast via `as unknown as UserPresence`; same pattern as `EditorPresenceLayer.tsx`) to show only other users in editor mode. Walking visitors who share the same world's Liveblocks room are excluded.
+- Renders: null when 0 remote editors; circular avatar stack when 1–4; first 3 circles + `+N` pill when 5+.
+- Each 28px circle: `border-2` colored ring matching `info.color`; shows `<Image>` from `next/image` with `referrerPolicy="no-referrer"` when `info.avatarUrl` is available; falls back to white initial letter on `info.color` background fill.
+- Native `title` attribute on each circle and on the overflow pill for hover tooltip.
+- Overlap: `marginLeft: -8` on every circle after the first; higher `zIndex` for earlier circles.
+- Mounted in `EditorTopBar` in the right gutter (`hidden xl:flex items-center mr-2`), before the dirty indicator. Hidden below `xl` breakpoint — lowest-priority element when bar gets tight.
+
+**`EditorTopBar.tsx` change**
+- Imports and mounts `<EditorCollaborators />` inside a `hidden xl:flex items-center mr-2` wrapper, positioned after the flex spacer and before the dirty indicator.
+
+**`EditorStatusBar.tsx` change**
+- Imports `useOthers` from `@liveblocks/react` + `isEditor` + `UserPresence` from `@/lib/liveblocks/types`.
+- Derives `editorCount` by filtering `useOthers()` with `isEditor` (same cast pattern as `EditorPresenceLayer`).
+- Adds a new leftmost slot in the `role="status"` div:
+  - `editorCount === 0` → `"Just you editing"` (muted `text-zinc-600`)
+  - `editorCount === 1` → `"1 other editor here"`
+  - `editorCount >= 2` → `"{N} other editors here"`
+  - Separated from the save status by a `·` divider.
+
+**`EditorShell.tsx` change**
+- Imports `<ChatPanel>` from `@/components/world-visitor/ChatPanel`.
+- Mounts `<ChatPanel />` after the `hidden md:flex` editor layout div, as a sibling element (not nested inside it). The component uses `fixed` positioning so its visual placement is always bottom-right of the viewport, independent of the DOM hierarchy.
+- `ChatPanel` overlaps the bottom of the properties panel on its right side — acceptable v1 (properties panel scrolls; chat is a small floating element; the properties panel is 320px wide which means the chat's 320px width at `right-4` does slightly overlap on narrower-xl screens, not a problem in practice).
+
+**T-key quirk (documented, accepted):**
+Pressing T outside any input in the editor fires BOTH the `EditorTopBar` keyboard handler (gizmo → translate) AND the `ChatPanel` keyboard handler (focus chat input). The gizmo mode change to translate is a harmless side effect — if the user is about to type in chat, they're no longer dragging a gizmo. To use rotate + chat: press R (gizmo → rotate), then T (focuses chat, leaves gizmo in rotate). Accepted v1 behavior. If disruptive in practice, the chat focus key in the editor can be switched to `/` independently.
+
+**No new tests this chunk** (Chunk 5 adds them per plan).
+
+### Slice 10.1 Chunk 4 — Rebase toast (shipped 2026-05-27)
+
+Surfaces the silent autosave rebase-on-409 so editors know their changes were merged on top of another editor's save.
+
+**Decision: option (b) — null authorName.** The 409 conflict response body (`currentVersion`) does not include author info — the `worldVersions` query in the ops route does not join the users table. Adding it would require a non-trivial schema join. Shipped with `authorName: null` and the message "Another editor's changes were merged in — your edits applied on top." Parking-lot TODO comment is in both `editor-store.ts` and `use-autosave.ts` explaining the extension path.
+
+**`RebaseNotice` interface + `lastRebaseNotice` state + `setRebaseNotice()` action** added to `editor-store.ts`:
+- `RebaseNotice { authorName: string | null; at: number }` — `at` is `Date.now()` at rebase time, used as a unique key per notice.
+- `lastRebaseNotice: RebaseNotice | null` — resets to `null` in `initialize()`.
+- `setRebaseNotice(notice)` — sets the state field.
+
+**`use-autosave.ts`** — after the `rebaseOnServerVersion()` call in the conflict branch (below MAX_CONFLICT_RETRIES), now also calls `setRebaseNotice({ authorName: null, at: Date.now() })`.
+
+**`RebaseToast.tsx`** (`src/components/editor/RebaseToast.tsx`) — new `"use client"` component:
+- Reads `lastRebaseNotice` and `setRebaseNotice` from the editor store.
+- Two-effect auto-dismiss pattern (lint-safe):
+  - Effect 1 keyed on `noticeAt` (`notice?.at ?? null`): calls `setDismissed(false)` when a new notice arrives. Note: `setDismissed` here is called directly in the effect body, which technically triggers `react-hooks/set-state-in-effect` — the `// eslint-disable-line` comment suppresses the one occurrence. This is the narrowest possible suppression (one line, the `setDismissed(false)` call only) and is justified: it's syncing a derived boolean from an external store value, which is the canonical "sync external state" use case for effects.
+  - Effect 2 keyed on `dismissed`: runs when `dismissed` is false; starts a 5s timer; timer callback calls `setDismissed(true)` (inside callback, not effect body — fully lint-safe) + `setRebaseNotice(null)` to clear the store.
+- Positioned: `fixed bottom-20 left-1/2 z-50 -translate-x-1/2`. `bottom-20` = 80px clears the `EditorStatusBar` (h-8) with room to spare.
+- `role="status" aria-live="polite"` for accessible announcement.
+- `pointer-events-none` outer / `pointer-events-auto` inner pill (does not block canvas clicks).
+
+**`EditorShell.tsx`** — imports and mounts `<RebaseToast />` as a sibling to `<ChatPanel />`.
+
+**z-index hierarchy (editor view):**
+- Canvas: z=0
+- ChatPanel: z=40
+- MobileJoysticks: z=50 (not in editor but noted for reference)
+- RebaseToast: z=50 (bottom-center, no conflict with ChatPanel at bottom-right)
+- ControlsHint: z=60 (visitor only)
+
+### Still to come (Phase 2 / Slice 9 + 10)
 
 - Touch-friendly editor controls (tablets day-one, phones graceful-degradation)
-- Chunk 7: docs + commit closeout
+- Chunk 5 (tests for Chunks 2–4 pure helpers)
 - See `ROADMAP.md` Phase 2 for details

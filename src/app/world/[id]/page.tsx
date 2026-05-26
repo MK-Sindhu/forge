@@ -22,6 +22,7 @@ import { ConvertToSceneGraphButton } from "@/components/convert-to-scene-graph/C
 import { VersionHistorySection } from "@/components/version-history/VersionHistorySection";
 import { CollaboratorsSection } from "@/components/collaborators/CollaboratorsSection";
 import { LiveblocksRoomProvider } from "@/components/liveblocks/LiveblocksRoomProvider";
+import { INITIAL_VISITOR_PRESENCE } from "@/lib/liveblocks/types";
 
 // ---------------------------------------------------------------------------
 // generateMetadata — per-world OG + Twitter Card tags
@@ -182,7 +183,7 @@ export default async function WorldPage(
           waiting for the owner to convert. When the owner DOES click "Convert to scene
           graph", the persisted scene graph takes over transparently. */}
       <div className="aspect-video w-full overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-800">
-        <LiveblocksRoomProvider worldId={world.id}>
+        <LiveblocksRoomProvider worldId={world.id} initialPresence={INITIAL_VISITOR_PRESENCE}>
           <WorldVisitorClient
             sceneGraph={
               (world.sceneGraph as SceneGraphV1 | null) ??

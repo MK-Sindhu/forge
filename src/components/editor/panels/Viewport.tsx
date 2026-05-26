@@ -46,6 +46,8 @@ import {
 } from "@react-three/drei";
 import { useEditorStore } from "../editor-store";
 import { EditorAssetMesh } from "../EditorAssetMesh";
+import { useEditorPresence } from "../use-editor-presence";
+import { EditorPresenceLayer } from "../EditorPresenceLayer";
 import { ViewerLoading } from "@/components/world-viewer/WorldViewerFallback";
 import type { Group, Object3D } from "three";
 import type { Asset } from "../EditorAssetMesh";
@@ -68,6 +70,20 @@ function LoadingOverlay() {
   const { active } = useProgress();
   if (!active) return null;
   return <ViewerLoading />;
+}
+
+// ---------------------------------------------------------------------------
+// EditorPresenceWiring — zero-render wrapper that calls useEditorPresence().
+//
+// A hook cannot be called directly in SceneContent's JSX without being inside
+// a component. Wrapping it here makes mounting/unmounting clean — the parent
+// can conditionally exclude this component (e.g., future "focus mode") without
+// changing SceneContent.
+// ---------------------------------------------------------------------------
+
+function EditorPresenceWiring() {
+  useEditorPresence();
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -244,6 +260,12 @@ function SceneContent({
         // target from scene graph camera — where the camera looks at by default
         target={sceneGraph.camera.target}
       />
+
+      {/* ----- Editor presence (Slice 10.1) ----- */}
+      {/* Broadcasts local cursor + selection + gizmo mode to Liveblocks ~10x/sec */}
+      <EditorPresenceWiring />
+      {/* Renders remote editors' cursor spheres + selection outlines */}
+      <EditorPresenceLayer />
     </>
   );
 }

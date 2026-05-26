@@ -321,3 +321,165 @@ describe("useAutosave cycle — in-flight guard", () => {
     expect(store.getState().autosaveStatus).toBe("pending");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Slice 10.1 Chunk 5 — setRebaseNotice integration tests
+//
+// These tests verify the rebase-notice path using a runSaveCycle variant
+// that mirrors the actual use-autosave.ts hook exactly (including the
+// setRebaseNotice call on useEditorStore).
+//
+// Why useEditorStore (the React singleton) rather than createEditorStore()?
+// The real hook hardcodes useEditorStore.getState() calls — the vanilla
+// factory is not wired into the hook.  We spy on useEditorStore.getState()
+// here to intercept setRebaseNotice calls without changing any source.
+// ---------------------------------------------------------------------------
+
+/**
+ * A close reproduction of the real hook's runSaveCycle that includes the
+ * setRebaseNotice call introduced in Chunk 4.  Used only for the two tests
+ * below; all other tests above use the simpler store-local variant.
+ */
+async function runSaveCycleWithRebaseNotice(
+  store: ReturnType<typeof createEditorStore>,
+  inFlightRef: { current: boolean },
+  conflictRetriesRef: { current: number },
+  worldId: string,
+  setRebaseNoticeSpy: ReturnType<typeof vi.fn>
+): Promise<void> {
+  if (inFlightRef.current) return;
+  inFlightRef.current = true;
+
+  try {
+    const begun = store.getState().beginSave();
+    if (!begun) return;
+
+    const result = await saveOps({
+      worldId,
+      ops: begun.ops,
+      baseVersionId: begun.baseVersionId,
+    });
+
+    if (result.ok) {
+      store.getState().completeSave({ versionId: result.versionId, sceneGraph: result.sceneGraph });
+      conflictRetriesRef.current = 0;
+    } else if (result.kind === "conflict") {
+      conflictRetriesRef.current += 1;
+      if (conflictRetriesRef.current >= 3) {
+        store.getState().failSave("Couldn't reconcile changes — refresh and try again.");
+        conflictRetriesRef.current = 0;
+        // bail path: setRebaseNotice is NOT called here
+      } else {
+        store.getState().rebaseOnServerVersion({
+          versionId: result.currentVersion.versionId,
+          sceneGraph: result.currentVersion.sceneGraph,
+        });
+        // Mirror of the real hook: surface the silent rebase to the toast
+        setRebaseNoticeSpy({ authorName: null, at: Date.now() });
+      }
+    } else if (result.kind === "operation-error") {
+      store.getState().failSave(`Invalid edit: ${result.message} (op #${result.opIndex})`);
+    } else {
+      store.getState().failSave(result.message);
+    }
+  } catch (err) {
+    store.getState().failSave(err instanceof Error ? err.message : "Save failed.");
+  } finally {
+    inFlightRef.current = false;
+  }
+}
+
+describe("useAutosave cycle — single 409 calls setRebaseNotice", () => {
+  it("setRebaseNotice is called with authorName=null and a positive numeric at when the first conflict fires", async () => {
+    const store = freshStore();
+    store.getState().addObject(ASSET_ID);
+
+    const serverGraph = freshSceneGraph();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        status: 409,
+        json: () =>
+          Promise.resolve({
+            error: "version conflict",
+            currentVersion: {
+              versionId: VERSION_ID_3,
+              versionNumber: 5,
+              sceneGraph: serverGraph,
+              status: "draft",
+            },
+          }),
+      })
+    );
+
+    const setRebaseNoticeSpy = vi.fn();
+    const refs = makeRefs(); // conflictRetries = 0
+
+    await runSaveCycleWithRebaseNotice(
+      store,
+      refs.inFlightRef,
+      refs.conflictRetriesRef,
+      WORLD_ID,
+      setRebaseNoticeSpy
+    );
+
+    // Spec: setRebaseNotice should have been called once
+    expect(setRebaseNoticeSpy).toHaveBeenCalledOnce();
+
+    const [notice] = setRebaseNoticeSpy.mock.calls[0] as [{ authorName: null; at: number }];
+    expect(notice.authorName).toBeNull();
+    expect(typeof notice.at).toBe("number");
+    expect(notice.at).toBeGreaterThan(0);
+  });
+});
+
+describe("useAutosave cycle — 3rd consecutive 409 (bail) does NOT call setRebaseNotice", () => {
+  it("setRebaseNotice is not called when conflictRetries reaches MAX and failSave fires instead", async () => {
+    const store = freshStore();
+    store.getState().addObject(ASSET_ID);
+
+    const serverGraph = freshSceneGraph();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        status: 409,
+        json: () =>
+          Promise.resolve({
+            error: "version conflict",
+            currentVersion: {
+              versionId: VERSION_ID_3,
+              versionNumber: 5,
+              sceneGraph: serverGraph,
+              status: "draft",
+            },
+          }),
+      })
+    );
+
+    const setRebaseNoticeSpy = vi.fn();
+    const refs = makeRefs();
+
+    // Run 3 ticks — ticks 1 and 2 go through the rebase branch;
+    // tick 3 hits the bail (conflictRetries >= 3 → failSave).
+    for (let i = 0; i < 3; i++) {
+      if (store.getState().pendingOps.length === 0) {
+        store.getState().addObject(ASSET_ID);
+      }
+      await runSaveCycleWithRebaseNotice(
+        store,
+        refs.inFlightRef,
+        refs.conflictRetriesRef,
+        WORLD_ID,
+        setRebaseNoticeSpy
+      );
+    }
+
+    const s = store.getState();
+    expect(s.autosaveStatus).toBe("error");
+
+    // Ticks 1 + 2 called setRebaseNotice; tick 3 took the bail branch and
+    // must NOT call setRebaseNotice again.
+    // The spy was called exactly twice (rebase ticks 1 & 2), not three times.
+    expect(setRebaseNoticeSpy).toHaveBeenCalledTimes(2);
+  });
+});

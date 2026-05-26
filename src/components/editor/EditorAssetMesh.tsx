@@ -123,6 +123,11 @@ export function EditorAssetMesh({ object, assets, onRefChange }: Props) {
         position={object.position}
         rotation={object.rotation}
         scale={object.scale}
+        // userData.objectId: lets EditorPresenceLayer (Slice 10.1) find this
+        // group by scene traversal for remote-selection outlines.
+        // userData.collidable: not set here (defaults to undefined = collidable)
+        // so the missing-asset cube still participates in raycasts.
+        userData={{ objectId: object.id }}
         onClick={(e) => {
           e.stopPropagation();
           selectObject(object.id);
@@ -153,6 +158,9 @@ export function EditorAssetMesh({ object, assets, onRefChange }: Props) {
       position={object.position}
       rotation={object.rotation}
       scale={object.scale}
+      // userData.objectId: lets EditorPresenceLayer (Slice 10.1) find this
+      // group by scene traversal for remote-selection outlines.
+      userData={{ objectId: object.id }}
       onClick={(e) => {
         e.stopPropagation();
         selectObject(object.id);

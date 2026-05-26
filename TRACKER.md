@@ -2,7 +2,7 @@
 
 > The "what is done, what is left, what is in-flight" doc. Updated after every slice ships and after every prod smoke test.
 
-**Last updated:** 2026-05-26 (9.3 close — Slice 9 complete)
+**Last updated:** 2026-05-27 (10.1 close — Slice 10 underway)
 
 ---
 
@@ -10,12 +10,12 @@
 
 | | |
 |---|---|
-| Current phase | Slice 9 — "Worlds Are Spaces" reframe (bridge between Phase 2 and Phase 3) — **COMPLETE** |
-| Current slice | Sub-slices 9.1 (walk mode + collision + copy reframe) + 9.2 (collaborators) + 9.3 (presence + chat via Liveblocks) all shipped 🟢. |
-| In-flight | Awaiting founder prod migration for 0012 (9.2 schema; Phase 2 0010 + 0011 already applied 2026-05-26); then 9.3 needs `LIVEBLOCKS_SECRET_KEY` in Vercel env (already added per founder). Then prod smoke 9.1 + 9.2 + 9.3 across two devices. |
-| Tests | 799 across 56 test files |
-| Commits on main | Slices 0–7 + Phase 2 (8.1–8.4) + Slice 9.1 + 9.2 + 9.3 closeout (latest commit pending) |
-| Latest commit | (this commit — Slice 9.3 Multi-user presence + chat via Liveblocks) |
+| Current phase | Slice 10 — Realtime editor collab (Phase 3 work). 10.1 (editor presence + chat-in-editor + rebase toast) shipped. 10.2 (concurrent CRDT-based co-editing) + 10.3 (voice chat) planned. |
+| Current slice | Slice 9 (visitor walk + collab + presence) + Slice 10.1 (editor presence) all shipped 🟢. |
+| In-flight | Awaiting founder prod migration for 0012 (9.2 schema) + 2-device prod smoke covering 9.1 + 9.2 + 9.3 + 10.1. Both visitor + editor presence active in the same Liveblocks room per world. |
+| Tests | 822 across 57 test files |
+| Commits on main | Slices 0–7 + Phase 2 (8.1–8.4) + Slice 9 + Slice 10.1 closeout (latest commit pending) |
+| Latest commit | (this commit — Slice 10.1 Realtime editor presence) |
 | Branch state | `main` clean, in sync with `origin/main` |
 | Production | https://forge-black-eta.vercel.app |
 | DB | Neon Postgres — 16 tables, 12 migrations applied locally (0010 = 8.1 substrate; 0011 = 8.2 indexes; 0012 = 9.2 world_collaborators + notifications enum). **Prod has 0010 + 0011 applied (2026-05-26). Prod migration for 0012 pending founder action.** |
@@ -29,7 +29,8 @@
 | Phase 1 — Launch | 🟡 IN PROGRESS | Slice 7 ✅ verified 2026-05-25; launch ops next (Terms, DMCA, onboarding, seed worlds, analytics, public launch) |
 | Phase 2 — Architectural Pivot | 🟢 SUBSTANTIALLY COMPLETE | Sub-slices 8.1 (Scene Graph Foundation) + 8.2 (Scene Graph API) + 8.3 (Improved Upload + Convert + Folder-Watcher CLI; absorbs 8.5 scope) + 8.4 (Browser Editor) all shipped 2026-05-26. ~~8.5~~ absorbed into 8.3. 8.6 (AI assist) parked per founder direction. Awaiting founder prod migration + prod smoke to flip 🟢 → ✅. |
 | Slice 9 — "Worlds Are Spaces" reframe | 🟢 SHIPPED | Bridge between Phase 2 and Phase 3. Driven by founder's clarification that worlds are interactive virtual spaces. Sub-slices 9.1 (walk mode + collision + copy reframe) + 9.2 (collaborators) + 9.3 (multi-user presence + chat via Liveblocks) all shipped 2026-05-26. Pulled async-collab + visitor presence forward from Phase 3. |
-| Phase 3 — Collaboration | ⬜ NOT STARTED | After Slice 9: realtime EDITOR presence (live collab editing in 3D) + voice chat + kick/mute moderation tools. The remaining Phase 3 work after Slice 9 absorbed async-collab + visitor presence. |
+| Slice 10 — Realtime editor collab (Phase 3 work) | 🟡 IN PROGRESS | 10.1 (realtime editor presence + chat-in-editor + rebase toast) shipped 2026-05-27. 10.2 (concurrent CRDT-based co-editing via Liveblocks Storage) + 10.3 (voice chat via LiveKit) + kick/mute moderation tools planned but not started. |
+| Phase 3 — Collaboration (post-Slice 10) | ⬜ NOT STARTED | After Slice 10: live multiplayer in worlds (voice, deeper presence features), worlds-as-events. |
 | Phase 4 — Living Worlds | ⬜ NOT STARTED | Interactivity + portals + scripting |
 | Phase 5 — Persistent Ecosystem | ⬜ NOT STARTED | Cross-world identity, asset library, full AI gen |
 | Phase 6 — Long Horizon | ⬜ NOT STARTED | Federation, XR, scripting language |
@@ -301,6 +302,32 @@ Bridge between Phase 2 (architecture done) and Phase 3 (community features). Dri
 | Explicitly out of v1 (parking lot) | Realtime EDITOR presence (live collab editing in 3D) · voice chat (LiveKit/WebRTC) · kick/mute moderation tools · DB-persisted chat history · avatar customization · server-side chat rate-limit · skinned avatars · position-lerp smoothing (raw position-set is acceptable with Liveblocks's ~100ms updates) |
 | Smoke checklist (prod) | (0) Prereq: 0012 migration applied + `LIVEBLOCKS_SECRET_KEY` in Vercel env · (1) Open two browsers (or normal + incognito) to same `/world/[id]` URL · (2) Both click "Enter world" → see each other's capsule + name tag moving as the other person moves · (3) Movement is fluid (some jitter is OK at ~10/sec presence rate) · (4) Press T → chat input focuses · type a message + Enter → sent · other window receives it · (5) Try rapid-fire 3 messages → second/third are rate-limited until 1.5s elapsed · (6) Sign out in one window → still see avatar (now as Guest_XXXX guest) · (7) Suspended user → auth route 403s → can't enter (avatar doesn't appear in other window) · (8) Refresh one window → other window's `useOthers()` updates (the connection drops + reconnects) · (9) Visit on phone → joysticks work + chat overlay visible (touch friendly?) · (10) CI green |
 
+### Slice 10 — Realtime editor collab (Phase 3 work)
+
+10.1 ships visibility into who else is editing the same world. Concurrent CRDT-based co-editing (10.2) + voice chat (10.3) remain planned but not started.
+
+#### Slice 10.1 — Realtime editor presence 🟢
+
+| | |
+|---|---|
+| Status | Shipped + deployed; no migration needed. |
+| What | When 2+ editors open `/world/[id]/edit` on the same world, they see each other live: cursor positions as colored 3D spheres + name tags · selection outlines on objects the OTHER editor has selected (wireframe box in their user color) · "X other editor(s) here" text in the status bar · avatar stack in the top bar (up to 4 + overflow pill) · in-editor chat panel (same `ChatPanel` from 9.3) · rebase-toast banner when autosave merges another editor's changes on top of yours. Single Liveblocks room per world means visitors + editors overlap in presence (visitors filtered out of editor 3D view by `mode === "editor"` guard; editors filtered out of visitor walk view by `isWalkingVisitor` guard). |
+| Realtime backbone | Same Liveblocks v3.19 from 9.3 — single room per world (`world:${worldId}`). No new deps, no new env vars, no new schema. |
+| Presence shape | Refactored `VisitorPresence` into a **discriminated union** `UserPresence = VisitorPresence \| EditorPresence` with `mode: "visitor" \| "editor"` discriminant. New `EditorPresence` shape: `{ mode: "editor", cursorWorldPos: [x,y,z] \| null, selectedObjectId: string \| null, gizmoMode }`. (Camera position omitted from v1 — adds when a consumer ships.) Type guards `isWalkingVisitor()` + `isEditor()` exported for both surfaces' filters. |
+| Provider refactor | `LiveblocksRoomProvider` now requires `initialPresence: UserPresence` as a prop instead of hardcoding visitor shape. Visitor page passes `INITIAL_VISITOR_PRESENCE`; editor page passes `INITIAL_EDITOR_PRESENCE`. |
+| New components | `EditorPresenceLayer` (R3F; `useOthers()` → filter `isEditor` → render `<RemoteEditorCursor>` + `<RemoteEditorSelectionOutline>` per remote editor) · `RemoteEditorCursor` (small sphere + drei Billboard name tag in remote editor's color) · `RemoteEditorSelectionOutline` (scene-traverse by `userData.objectId` → wireframe `<boxGeometry>` at the bounding box, in remote editor's color) · `EditorCollaborators` (top-bar avatar stack; `next/image` avatars with `referrerPolicy="no-referrer"`; initials fallback; max 4 circles + `+N` pill; hidden below `xl` breakpoint to preserve top-bar space) · `RebaseToast` (bottom-center floating pill; "Another editor's changes were merged in — your edits applied on top."; auto-dismisses after 5s) |
+| New hook | `useEditorPresence()` — called from inside the editor `<Canvas>` (via tiny `EditorPresenceWiring` zero-render component). Pure helper `computeEditorPresence({ pointer, camera, scene, raycaster, selectedObjectId, gizmoMode })` reads R3F's NDC pointer + raycasts to find cursor world position, filters out non-collidable hits, returns the next presence shape. Throttled to 100ms + dedupes on serialized state. |
+| Existing components extended | `EditorAssetMesh` — added `userData={{ objectId }}` to outer group so `RemoteEditorSelectionOutline` can find it via `scene.traverse()` (additive only) · `EditorTopBar` — slot for `<EditorCollaborators />` · `EditorStatusBar` — "Just you editing" / "N other editors here" text + sibling `<RebaseToast />` mount · `EditorShell` — drops `<ChatPanel />` + `<RebaseToast />` as floating siblings · `PresenceLayer` (visitor) — refactored to use `isWalkingVisitor()` guard (now resilient to editor presence in the same room) · `editor-store` — `lastRebaseNotice: RebaseNotice \| null` + `setRebaseNotice()` action; cleared on `initialize()` · `use-autosave` — calls `setRebaseNotice({ authorName: null, at: Date.now() })` on the 409→rebase branch (3rd-bail path does NOT trigger a notice) |
+| T-key conflict | Pressing T outside any input simultaneously triggers EditorTopBar's "translate gizmo" handler AND ChatPanel's "focus chat input" handler. Side effect is harmless — gizmo flips to translate, chat input takes focus, user starts typing. Could swap to `/` later if it bothers users. |
+| Author attribution in rebase toast | Omitted v1 (would need to extend the 409 response shape to include `author` from the version row's `with: { author: true }` join — small but additional surface). Notice currently says "Another editor's changes were merged in" without naming. Parked in TODO comment for follow-up. |
+| Schema / migration changes | NONE — 10.1 is pure presence + UI layered on Slice 9.3's infrastructure. |
+| New env vars | NONE — reuses `LIVEBLOCKS_SECRET_KEY` from 9.3. |
+| Auth | NONE new — editor page is role-gated (9.2) so only owners + editor collaborators can connect with editor presence. |
+| Documentation | `docs/3d.md` (editor presence layer architecture, `userData.objectId` tagging, NDC pointer + raycast pattern) · `docs/frontend.md` (Chunk 1-4 sections: provider refactor, EditorCollaborators, RebaseToast, T-key conflict note) · `docs/testing.md` (10.1 Chunk 5 testing notes, Three.js in node env, `runSaveCycleWithRebaseNotice` DI pattern) · `docs/backend.md` (presence type union + provider prop change) |
+| Tests | 799 → 822 (+23 across 1 new test file + 3 extensions): `liveblocks/types.test.ts` (+14 — type guards + initial-presence constants) · `use-editor-presence.test.ts` (+4 — pure helper with real Three.js Scene + Raycaster) · `editor-store.test.ts` (+3 — rebase notice get/set/clear) · `use-autosave.test.ts` (+2 — rebase branch sets notice; bail path does not). R3F-Canvas-wrapping components (`EditorPresenceLayer`, `RemoteEditorCursor`, `RemoteEditorSelectionOutline`) + the effect-heavy `RebaseToast` NOT unit-tested — consistent with the Phase 2 + Slice 9 precedent. |
+| Explicitly out of v1 (parking lot) | Concurrent CRDT-based co-editing (Slice 10.2 — Liveblocks Storage with Y.js) · author name in rebase toast (needs `with: { author: true }` join on the 409 path) · camera frustum visualization for remote editors · "Follow this editor" mode · voice chat in editor (Slice 10.3 — LiveKit) · separate visitor/editor chat threads · per-editor selection lock · save-attribution timeline in version history UI · "Someone joined/left" toasts |
+| Smoke checklist (prod) | (0) Prereq: 0012 migration applied + `LIVEBLOCKS_SECRET_KEY` in Vercel env · (1) Open `/world/[id]/edit` on a converted world you own · (2) In a second browser (incognito or another device), sign in as a collaborator + open the same edit URL · (3) Both see each other's avatar in the top-bar collaborator stack · (4) Move mouse → your cursor sphere appears in the OTHER editor's viewport in your color, tracking your raycast position over the scene · (5) Click an object → wireframe outline appears in B's viewport in your color (and vice versa) · (6) Press T → chat input opens · type a message + Enter → other editor sees it · (7) Status bar shows "1 other editor here" · (8) Both editors save concurrently → 409 fires → autosave rebases → small blue "Another editor's changes were merged in" toast appears at bottom-center · (9) Open `/world/[id]` (visitor side) in a third window → enter walk mode → walking visitor's capsule appears in editor 3D view? NO — editor's `mode === "editor"` filter excludes visitors (intentional; reduces clutter) · visitor sees no editors in their walk view (no `inWalkMode` field on editor presence — naturally excluded by `isWalkingVisitor` guard) · (10) Chat is shared between editors + visitors (same room) — typing in one surface shows in the other · (11) CI green |
+
 ## 4. Known Issues / Follow-ups (Open)
 
 Things that work but should be cleaned up before or shortly after launch.
@@ -317,7 +344,7 @@ Things that work but should be cleaned up before or shortly after launch.
 
 | Metric | Value |
 |---|---|
-| **Total** | **56 test files / 799 tests** — all passing on main |
+| **Total** | **57 test files / 822 tests** — all passing on main |
 | Per-slice inventory | See `docs/testing.md` "Test Inventory by Slice" — owned + maintained by `test-engineer` |
 | 3D / R3F component tests | None (deferred to Phase 2 per `docs/testing.md`) |
 | E2E (Playwright/Cypress) | None (unit + integration only) |
@@ -331,7 +358,7 @@ Run anytime to verify state:
 ```bash
 git log --oneline -5            # Recent commits
 git status                       # Clean tree expected
-npm test                         # 799 tests expected
+npm test                         # 822 tests expected
 npm run build                    # Clean build expected
 npm run db:smoke                 # All 14 tables present, current row counts
 ```

@@ -75,6 +75,17 @@ export function useAutosave(worldId: string) {
               versionId: result.currentVersion.versionId,
               sceneGraph: result.currentVersion.sceneGraph,
             });
+
+            // Surface the silent rebase to the editor so they know their edits
+            // were merged on top of another editor's save.
+            // authorName is null because the 409 response does not include
+            // author info (no join on world_versions → users in the route).
+            // TODO(parking-lot): extend the 409 body with author info so the
+            // toast can name the other editor.
+            useEditorStore.getState().setRebaseNotice({
+              authorName: null,
+              at: Date.now(),
+            });
           }
         } else if (result.kind === "operation-error") {
           useEditorStore

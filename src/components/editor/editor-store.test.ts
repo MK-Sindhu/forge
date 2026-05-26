@@ -774,3 +774,54 @@ describe("Convenience method — addSpawn / deleteSpawn", () => {
     expect(store.getState().sceneGraph.spawnPoints).toHaveLength(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Slice 10.1 Chunk 5 — lastRebaseNotice / setRebaseNotice tests
+// ---------------------------------------------------------------------------
+
+describe("initialize() — resets lastRebaseNotice to null", () => {
+  it("a previously-set rebase notice is cleared by initialize()", () => {
+    const store = createEditorStore();
+    initStore(store);
+
+    // Set a notice to simulate a rebase having fired
+    store.getState().setRebaseNotice({ authorName: "Alice", at: 1000 });
+    expect(store.getState().lastRebaseNotice).not.toBeNull();
+
+    // Re-initialize (simulates opening the editor on a fresh page load)
+    store.getState().initialize({
+      worldId: WORLD_ID,
+      sceneGraph: emptySceneGraph(),
+      baseVersionId: VERSION_ID,
+    });
+
+    expect(store.getState().lastRebaseNotice).toBeNull();
+  });
+});
+
+describe("setRebaseNotice() — sets the rebase notice", () => {
+  it("stores the provided notice and it can be read back", () => {
+    const store = createEditorStore();
+    initStore(store);
+
+    store.getState().setRebaseNotice({ authorName: "Alice", at: 1000 });
+
+    const notice = store.getState().lastRebaseNotice;
+    expect(notice).not.toBeNull();
+    expect(notice!.authorName).toBe("Alice");
+    expect(notice!.at).toBe(1000);
+  });
+});
+
+describe("setRebaseNotice(null) — clears the notice", () => {
+  it("clears a previously-set notice when called with null", () => {
+    const store = createEditorStore();
+    initStore(store);
+
+    store.getState().setRebaseNotice({ authorName: "Bob", at: 9999 });
+    expect(store.getState().lastRebaseNotice).not.toBeNull();
+
+    store.getState().setRebaseNotice(null);
+    expect(store.getState().lastRebaseNotice).toBeNull();
+  });
+});

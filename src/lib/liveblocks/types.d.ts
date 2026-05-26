@@ -6,8 +6,8 @@
  * augmentation is in scope, every hook from `@liveblocks/react` is
  * fully typed:
  *
- *   useMyPresence()  → [VisitorPresence, (patch) => void]
- *   useOthers()      → User<VisitorPresence, { id: string; info: VisitorUserInfo }>[]
+ *   useMyPresence()  → [UserPresence, (patch) => void]
+ *   useOthers()      → User<UserPresence, { id: string; info: VisitorUserInfo }>[]
  *   useBroadcastEvent() → (event: RoomEvent) => void
  *   useEventListener(cb) → cb receives RoomEvent
  *
@@ -16,16 +16,20 @@
  * picks it up automatically because it lives inside `src/` which is covered by
  * `tsconfig.json`'s `include`.
  *
+ * Presence is the `UserPresence` discriminated union (VisitorPresence |
+ * EditorPresence). Both visitor and editor pages share the same Liveblocks room
+ * per world; the `mode` field lets each surface filter out irrelevant entries.
+ *
  * Storage is intentionally empty (`Record<string, never>`): Slice 9.3 uses
  * presence + broadcast events for position sync and chat.  Shared persistent
  * storage (LiveObject) is not used in v1.
  */
 
-import type { VisitorPresence, VisitorUserInfo, RoomEvent } from "./types";
+import type { UserPresence, VisitorUserInfo, RoomEvent } from "./types";
 
 declare global {
   interface Liveblocks {
-    Presence: VisitorPresence;
+    Presence: UserPresence;
     UserMeta: {
       id: string;
       info: VisitorUserInfo;

@@ -27,6 +27,8 @@ import { getWorldRoleForUser } from "@/lib/world-permissions";
 import { parseSceneGraph } from "@/lib/scene-graph/schema";
 import type { SceneGraphV1 } from "@/lib/scene-graph/schema";
 import { EditorShell } from "@/components/editor/EditorShell";
+import { LiveblocksRoomProvider } from "@/components/liveblocks/LiveblocksRoomProvider";
+import { INITIAL_EDITOR_PRESENCE } from "@/lib/liveblocks/types";
 
 // ---------------------------------------------------------------------------
 // Metadata
@@ -209,14 +211,17 @@ export default async function EditWorldPage(
     .orderBy(desc(worldAssets.createdAt))
     .limit(100);
 
-  // 9. Render the editor shell
+  // 9. Render the editor shell, wrapped in Liveblocks so collaborators see
+  //    each other's cursors + selections in real time.
   return (
-    <EditorShell
-      worldId={id}
-      worldTitle={world.title}
-      sceneGraph={sceneGraph}
-      baseVersionId={latestVersion.id}
-      assets={rawAssets}
-    />
+    <LiveblocksRoomProvider worldId={id} initialPresence={INITIAL_EDITOR_PRESENCE}>
+      <EditorShell
+        worldId={id}
+        worldTitle={world.title}
+        sceneGraph={sceneGraph}
+        baseVersionId={latestVersion.id}
+        assets={rawAssets}
+      />
+    </LiveblocksRoomProvider>
   );
 }

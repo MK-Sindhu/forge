@@ -43,7 +43,7 @@
 
 import React, { useMemo } from "react";
 import { LiveblocksProvider, RoomProvider } from "@liveblocks/react";
-import { worldRoomId, type VisitorPresence } from "@/lib/liveblocks/types";
+import { worldRoomId, type UserPresence } from "@/lib/liveblocks/types";
 import { getOrCreateGuestId } from "@/lib/guest-id";
 
 // ---------------------------------------------------------------------------
@@ -53,30 +53,22 @@ import { getOrCreateGuestId } from "@/lib/guest-id";
 interface Props {
   /** The FORGE world uuid — converted to "world:{id}" internally. */
   worldId: string;
+  /**
+   * The initial presence shape for users who join this room.
+   * Visitor page passes INITIAL_VISITOR_PRESENCE; editor page passes
+   * INITIAL_EDITOR_PRESENCE. Required so the discriminated union is correct
+   * from the first tick — Liveblocks propagates this to all other connected
+   * users immediately on connect.
+   */
+  initialPresence: UserPresence;
   children: React.ReactNode;
 }
-
-// ---------------------------------------------------------------------------
-// Initial presence
-// ---------------------------------------------------------------------------
-
-// Cast needed: JsonObject requires an index signature (`[key: string]: Json`)
-// that our specific VisitorPresence interface doesn't declare.  Once the
-// `Liveblocks.Presence = VisitorPresence` global augmentation is resolved by
-// TypeScript, `RoomProvider`'s generic picks it up correctly at the hook level.
-// The cast here is safe — all fields on VisitorPresence are JSON-serializable.
-const initialPresence = {
-  position: null,
-  yaw: 0,
-  pitch: 0,
-  inWalkMode: false,
-} satisfies VisitorPresence;
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function LiveblocksRoomProvider({ worldId, children }: Props) {
+export function LiveblocksRoomProvider({ worldId, initialPresence, children }: Props) {
   const roomId = worldRoomId(worldId);
 
   /**
@@ -115,7 +107,8 @@ export function LiveblocksRoomProvider({ worldId, children }: Props) {
 
   return (
     <LiveblocksProvider authEndpoint={authEndpoint}>
-      <RoomProvider id={roomId} initialPresence={initialPresence}>
+      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+      <RoomProvider id={roomId} initialPresence={initialPresence as any}>
         {children}
       </RoomProvider>
     </LiveblocksProvider>

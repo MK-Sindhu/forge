@@ -23,7 +23,8 @@
 //   A lerp pass can be added in a follow-up slice if the jitter is distracting.
 
 import { useOthers } from "@liveblocks/react";
-import type { VisitorPresence, VisitorUserInfo } from "@/lib/liveblocks/types";
+import type { UserPresence, VisitorUserInfo } from "@/lib/liveblocks/types";
+import { isWalkingVisitor } from "@/lib/liveblocks/types";
 import { VisitorAvatar } from "./VisitorAvatar";
 
 export function PresenceLayer() {
@@ -32,20 +33,21 @@ export function PresenceLayer() {
   return (
     <>
       {others.map((other) => {
-        // Cast to our concrete types. The global `Liveblocks.Presence` augmentation
-        // wires these types, but TypeScript cannot narrow tuple types (e.g.
-        // `[number, number, number]`) back out of Liveblocks's Json constraint —
-        // the constraint system widens them on the way in and doesn't recover the
-        // tuple on the way out. The cast is safe: the server auth endpoint and the
-        // WalkMode presence-push both produce exactly VisitorPresence-shaped data.
-        const presence = other.presence as unknown as VisitorPresence;
+        // Cast to our concrete union type. The global `Liveblocks.Presence`
+        // augmentation wires UserPresence, but TypeScript cannot narrow tuple
+        // types (e.g. `[number, number, number]`) back out of Liveblocks's Json
+        // constraint. The cast is safe: the server auth endpoint and WalkMode
+        // presence-push both produce exactly the typed shapes.
+        const presence = other.presence as unknown as UserPresence | null;
         // other.info is the VisitorUserInfo set server-side via prepareSession.
         // Liveblocks v3 exposes it directly as other.info (NOT other.user.info).
         const info = other.info as unknown as VisitorUserInfo | undefined;
 
-        // Skip users who haven't entered walk mode or whose info hasn't arrived.
-        if (!presence?.position) return null;
-        if (!presence.inWalkMode) return null;
+        // isWalkingVisitor narrows to VisitorPresence & { position: [n,n,n] },
+        // so `presence.position` below is guaranteed non-null.
+        // Crucially this also filters out editor-mode presence, keeping the
+        // visitor viewport free of editor entries.
+        if (!isWalkingVisitor(presence)) return null;
         if (!info) return null;
 
         return (

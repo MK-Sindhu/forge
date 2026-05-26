@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useEditorStore } from "./editor-store";
 import type { GizmoMode } from "./editor-store";
 import { saveOps, publishVersion } from "./save-client";
+import { EditorCollaborators } from "./EditorCollaborators";
 
 interface Props {
   worldId: string;
@@ -251,6 +252,11 @@ export function EditorTopBar({ worldId, worldTitle }: Props) {
 
       {/* Spacer */}
       <div className="flex-1" />
+
+      {/* Collaborator avatar stack — lowest-priority item; hidden below xl */}
+      <div className="hidden xl:flex items-center mr-2">
+        <EditorCollaborators />
+      </div>
 
       {/* Dirty indicator */}
       {dirty && (

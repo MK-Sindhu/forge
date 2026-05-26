@@ -45,6 +45,26 @@ export type GizmoMode = "translate" | "rotate" | "scale";
 export type PropertiesTab = "object" | "lights" | "environment" | "spawn-points";
 export type AutosaveStatus = "idle" | "pending" | "saving" | "saved" | "error";
 
+/**
+ * A notice shown to the editor after a silent rebase-on-409 so they know
+ * their edits were merged on top of another editor's save.
+ *
+ * authorName is null in v1 — the 409 conflict response does not currently
+ * include author info (no join on world_versions → users). When null, the
+ * toast message falls back to "Another editor's changes were merged in."
+ *
+ * TODO(parking-lot): extend the 409 response to include
+ *   `author: { id, username }` so the toast can name the other editor.
+ *   Requires adding `with: { author: true }` to the worldVersions query
+ *   in src/app/api/worlds/[id]/scene-graph/ops/route.ts.
+ */
+export interface RebaseNotice {
+  /** Display name of the editor whose save we rebased onto. null if not known. */
+  authorName: string | null;
+  /** Wall-clock timestamp (Date.now()) of when the rebase happened. */
+  at: number;
+}
+
 /** Snapshot of the relevant scene state at a point in time. */
 interface Snapshot {
   sceneGraph: SceneGraphV1;
@@ -98,6 +118,15 @@ export interface EditorState {
   // --- Undo/redo ---
   undoStack: UndoEntry[];
   redoStack: UndoEntry[];
+
+  // --- Rebase notice ---
+  /**
+   * Set after a silent 409 rebase so the RebaseToast can surface it.
+   * Cleared by setRebaseNotice(null) after the toast has auto-dismissed.
+   * Reset to null on initialize() so fresh editor sessions don't see a
+   * stale notice.
+   */
+  lastRebaseNotice: RebaseNotice | null;
 }
 
 export interface EditorActions {
@@ -159,6 +188,9 @@ export interface EditorActions {
   // Selectors
   isDirty(): boolean;
   getSelectedObject(): SceneGraphV1["objects"][number] | undefined;
+
+  // Rebase notice
+  setRebaseNotice(notice: RebaseNotice | null): void;
 }
 
 export type EditorStore = EditorState & EditorActions;
@@ -189,6 +221,7 @@ function buildInitialState(): EditorState {
     lastSaveOpCount: 0,
     undoStack: [],
     redoStack: [],
+    lastRebaseNotice: null,
   };
 }
 
@@ -218,6 +251,7 @@ const editorStateCreator: StateCreator<EditorStore> = (set, get) => ({
       lastSaveOpCount: 0,
       undoStack: [],
       redoStack: [],
+      lastRebaseNotice: null,
     });
   },
 
@@ -502,6 +536,14 @@ const editorStateCreator: StateCreator<EditorStore> = (set, get) => ({
     const state = get();
     if (!state.selectedObjectId) return undefined;
     return state.sceneGraph.objects.find((o) => o.id === state.selectedObjectId);
+  },
+
+  // -------------------------------------------------------------------------
+  // Rebase notice
+  // -------------------------------------------------------------------------
+
+  setRebaseNotice(notice) {
+    set({ lastRebaseNotice: notice });
   },
 });
 
