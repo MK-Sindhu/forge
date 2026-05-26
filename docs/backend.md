@@ -306,6 +306,7 @@ Verified by walking `src/app/api/` (15 `route.ts` files as of Slice 6). `/api/fe
 | Method | Path | Auth | What it does | Slice |
 |---|---|---|---|---|
 | GET | `/api/me` | required | Returns (or creates) the DB user row for the signed-in Clerk user | 0 |
+| PUT | `/api/users/me` | required, active | Change the signed-in user's FORGE username. Body: `{ username: string(3..32, /^[a-z0-9_]+$/i) }`. Normalizes to lowercase before storing. No-op (200) if new equals current. Reserved-name check (400 `"username reserved"`). Uniqueness check (409 `"username taken"`). Returns `{ id, username, avatarUrl }`. No transaction needed — single-row update. | hotfix |
 | POST | `/api/uploads/sign` | required | Returns presigned R2 PUT URL; `kind` enum extended with `"asset"` in Phase 2 (`assetId` + `worldId` ownership check required for that kind) | 1, 8.2 |
 | POST | `/api/worlds` | required, active | Create a world (HEADs R2 keys, transactional insert); accepts optional `tags` array (max 5, normalized + validated); inserts `tags` + `world_tags` in the same transaction; fans out `new_world` notifications to followers post-commit | 1, 7.1, 7.5 |
 | GET | `/api/worlds/[id]` | public | Joins media + author + tags + assets; includes `isLikedByCurrentUser`, `isRepostedByCurrentUser`; response includes `tags: { name: string }[]`; Phase 2 additions: `sceneGraph: SceneGraphV1 \| null` (parsed defensively; null = legacy or parse failure) and `assets: { id, name, glbUrl, sizeBytes }[]` (empty array for legacy worlds) | 1, 7.1, 8.1 |

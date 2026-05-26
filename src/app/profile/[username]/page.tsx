@@ -10,6 +10,7 @@ import { WorldCardMedia } from "@/components/world-card-media/WorldCardMedia";
 import { FollowButton } from "@/components/follow-button/FollowButton";
 import { TagChip } from "@/components/tag-chip/TagChip";
 import { EditableWorldsSection } from "@/components/profile/EditableWorldsSection";
+import { EditUsernameButton } from "@/components/profile/EditUsernameButton";
 
 // ---------------------------------------------------------------------------
 // generateMetadata — per-profile OG + Twitter Card tags
@@ -153,6 +154,10 @@ export default async function ProfilePage({
         <div>
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-semibold">{user.username}</h1>
+            <EditUsernameButton
+              currentUsername={user.username}
+              isOwnProfile={isOwnProfile}
+            />
             {!isOwnProfile && (
               <FollowButton
                 username={user.username}
