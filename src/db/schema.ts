@@ -97,6 +97,8 @@ export const worldVersions = pgTable("world_versions", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index("world_versions_world_id_version_idx").on(t.worldId, desc(t.versionNumber)),
+  index("world_versions_world_id_status_idx").on(t.worldId, t.status),    // for "find latest published" lookups
+  index("world_versions_parent_version_id_idx").on(t.parentVersionId),    // for version-tree traversal (8.5)
   unique("world_versions_world_version_unique").on(t.worldId, t.versionNumber),
   check("world_versions_status_check", sql`${t.status} IN ('draft', 'published')`),
 ]);

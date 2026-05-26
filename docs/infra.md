@@ -78,9 +78,9 @@ Default `dotenv` doesn't find `.env.local`.
 | Client | Type | Use for |
 |---|---|---|
 | `db` | HTTP | Standard queries, supports `db.query.*` relational queries |
-| `dbPool` | WebSocket | Transactions (`tx.insert`, `tx.update` — **not** `tx.query.*`) |
+| `dbPool` | WebSocket | Transactions; schema wired (resolved 2026-05-26 in 8.2) — `tx.query.*` now works inside transactions |
 
-**Gotcha:** `dbPool` doesn't have the Drizzle schema wired into it — `drizzlePool({ client: pool })` is called without the `schema` argument in `src/db/index.ts`. Inside a transaction, use raw `tx.insert(...)`, `tx.update(...)`, `tx.delete(...)`. `tx.query.*` only works on `db`. This is an open limitation: if a route ever needs both a transaction and a relational query in the same operation, pass `schema` to `drizzlePool` the same way `db` does (`drizzleHttp({ client: sql, schema })`).
+**Resolved (2026-05-26, sub-slice 8.2):** `dbPool` now has the Drizzle schema wired — `drizzlePool({ client: pool, schema })` in `src/db/index.ts`. Both `tx.insert/update/delete` and `tx.query.*` work inside transactions. This was an open limitation in Slices 1–7.
 
 ### Migrations
 
@@ -103,6 +103,7 @@ Current migrations:
 0008_slice7_views.sql          ← adds world_views table (viewer_id, world_id, day composite PK + FK constraints + world_views_world_id_idx)
 0009_slice7_notifications.sql  ← adds notifications table (user_id, type CHECK, actor/world/comment nullable FKs, read_at) + composite index + partial index WHERE read_at IS NULL
 0010_phase2_scene_graph_foundation.sql  ← Phase 2.1: adds worlds.scene_graph (jsonb, nullable) + worlds.published_version_id (uuid, nullable FK → world_versions); creates world_assets + world_versions tables with FK constraints + CHECK constraints + indexes
+0011_phase2_scene_graph_api.sql         ← Phase 2.2: adds world_versions_world_id_status_idx + world_versions_parent_version_id_idx
 ```
 
 **Note on `0007_slice7_search.sql`:** This migration defines three Postgres functions (`worlds_search_vector_build`, `worlds_search_vector_trigger_fn`, `world_tags_search_vector_trigger_fn`) and two triggers (`worlds_search_vector_trigger` BEFORE on `worlds`, `world_tags_search_vector_trigger` AFTER on `world_tags`). When applying to production, all three functions and both triggers must land cleanly — verify with `\df` and `\dT` in psql or a `SELECT proname FROM pg_proc WHERE proname LIKE 'worlds_%';` query after the migration runs.
@@ -197,7 +198,7 @@ Run anytime to verify infra state:
 
 ```bash
 npm run build            # Clean build
-npm test                 # 417 tests pass
+npm test                 # 518 tests pass
 npm run db:smoke         # All tables present, current row counts (scripts/smoke.ts)
                          # Note: smoke.ts queries 9 specific tables; DB has 15 total as of Phase 2.1
                          # Use verify-8-1-schema.ts (or psql \dt) to confirm full table count
@@ -260,6 +261,6 @@ goes live.
 |---|---|---|
 | Build fails on Vercel with missing env error | New env var added without updating Vercel dashboard | Add to Vercel Production + Preview |
 | CI build fails with missing env error | New env var added without placeholder in `ci.yml` | Add placeholder |
-| `db.query.*` works locally, fails in transaction | Using `dbPool`/`tx` for relational queries | Use raw `tx.insert/update/delete`, only use `db` for `query.*` |
+| `db.query.*` fails inside transaction on old branches | Pre-8.2 `dbPool` was missing `schema` | Pull latest — fixed in 8.2 (2026-05-26). `tx.query.*` now works; actively used by ops + publish routes in Chunk D2. |
 | Migration script silently fails | `.env.local` not loaded | Add `dotenv.config({ path: ".env.local" })` |
 | R2 upload returns 403 | Bucket policy or presigned URL expired | Check bucket public-read + URL expiry window |

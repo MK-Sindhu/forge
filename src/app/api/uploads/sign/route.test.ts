@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // resolves. vi.hoisted() runs at the top of the module scope, before imports.
 // ---------------------------------------------------------------------------
 
-const { mockAuth, mockCurrentUser, mockRequireActiveDbUser, mockGetPresignedPutUrl, mockBuildGlbKey, mockBuildThumbnailKey, mockBuildMediaKey } =
+const { mockAuth, mockCurrentUser, mockRequireActiveDbUser, mockGetPresignedPutUrl, mockBuildGlbKey, mockBuildThumbnailKey, mockBuildMediaKey, mockBuildAssetKey, mockDbSelect } =
   vi.hoisted(() => ({
     mockAuth: vi.fn(),
     // External boundary: currentUser() fetches the full Clerk user object.
@@ -16,12 +16,14 @@ const { mockAuth, mockCurrentUser, mockRequireActiveDbUser, mockGetPresignedPutU
     // External boundary: real getPresignedPutUrl would call AWS SDK + Cloudflare R2.
     // We mock it to return a predictable URL without any network calls.
     mockGetPresignedPutUrl: vi.fn(),
-    // buildGlbKey / buildThumbnailKey / buildMediaKey are pure key-builders; mocked
-    // so the test controls objectKey values and we can assert the route passes them
-    // correctly to getPresignedPutUrl without coupling to R2's key-generation logic.
+    // buildGlbKey / buildThumbnailKey / buildMediaKey / buildAssetKey are pure
+    // key-builders; mocked so the test controls objectKey values.
     mockBuildGlbKey: vi.fn(),
     mockBuildThumbnailKey: vi.fn(),
     mockBuildMediaKey: vi.fn(),
+    mockBuildAssetKey: vi.fn(),
+    // DB select mock for the world ownership check in kind=asset path.
+    mockDbSelect: vi.fn(),
   }));
 
 // Mock @clerk/nextjs/server — external boundary; real Clerk calls require a
@@ -43,6 +45,16 @@ vi.mock("@/lib/r2", () => ({
   buildGlbKey: mockBuildGlbKey,
   buildThumbnailKey: mockBuildThumbnailKey,
   buildMediaKey: mockBuildMediaKey,
+  buildAssetKey: mockBuildAssetKey,
+}));
+
+// Mock @/db — prevents DATABASE_URL from being required at module load time.
+// The db.select chain is used only in the kind=asset world-ownership check;
+// other kinds never touch the DB.
+vi.mock("@/db", () => ({
+  db: {
+    select: mockDbSelect,
+  },
 }));
 
 // Import the handler AFTER mocks are registered.
@@ -55,6 +67,18 @@ import { POST } from "./route";
 const VALID_USER_ID = "user_clerk_abc123";
 const VALID_WORLD_ID = "550e8400-e29b-41d4-a716-446655440000"; // UUID v4
 const VALID_MEDIA_ID = "660e8400-e29b-41d4-a716-446655440001"; // UUID v4
+const VALID_ASSET_ID = "770e8400-e29b-41d4-a716-446655440002"; // UUID v4
+
+// Helper: build a fluent db.select() chain mock that resolves to `rows`.
+function makeDbSelectChain(rows: unknown[]) {
+  const chain = {
+    from: vi.fn().mockReturnThis(),
+    where: vi.fn().mockReturnThis(),
+    limit: vi.fn().mockResolvedValue(rows),
+  };
+  mockDbSelect.mockReturnValue(chain);
+  return chain;
+}
 
 const PRESIGNED_URL = "https://r2.example.com/signed-put?token=abc";
 
@@ -73,6 +97,7 @@ function makeRequest(body: unknown, rawBody?: string): Request {
 describe("POST /api/uploads/sign — Auth", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    makeDbSelectChain([]);
   });
 
   it("returns 401 with {error: 'Unauthorized'} when auth() returns {userId: null}", async () => {
@@ -103,6 +128,7 @@ describe("POST /api/uploads/sign — Body validation", () => {
     mockAuth.mockResolvedValue({ userId: VALID_USER_ID });
     mockCurrentUser.mockResolvedValue({ id: VALID_USER_ID });
     mockRequireActiveDbUser.mockResolvedValue({ id: "db-user-id", suspendedAt: null });
+    makeDbSelectChain([]);
   });
 
   it("returns 400 when body is invalid JSON", async () => {
@@ -249,6 +275,7 @@ describe("POST /api/uploads/sign — image/video uploads (Slice 2)", () => {
       (userId: string, worldId: string, mediaId: string, ext: string) =>
         `worlds/${userId}/${worldId}/media/${mediaId}.${ext}`
     );
+    makeDbSelectChain([]);
   });
 
   it("kind=image with valid params returns 200 with correct objectKey", async () => {
@@ -336,6 +363,7 @@ describe("POST /api/uploads/sign — Per-kind content type validation", () => {
       (userId: string, worldId: string, ext: string) =>
         `worlds/${userId}/${worldId}/thumbnail.${ext}`
     );
+    makeDbSelectChain([]);
   });
 
   it.each([
@@ -447,6 +475,7 @@ describe("POST /api/uploads/sign — Per-kind size cap", () => {
       (userId: string, worldId: string, ext: string) =>
         `worlds/${userId}/${worldId}/thumbnail.${ext}`
     );
+    makeDbSelectChain([]);
   });
 
   it("glb accepts sizeBytes equal to the 50 MB cap (52428800)", async () => {
@@ -524,6 +553,7 @@ describe("POST /api/uploads/sign — Successful sign", () => {
       (userId: string, worldId: string, ext: string) =>
         `worlds/${userId}/${worldId}/thumbnail.${ext}`
     );
+    makeDbSelectChain([]);
   });
 
   it("valid glb request returns 200 with {uploadUrl, objectKey}", async () => {
@@ -667,5 +697,133 @@ describe("POST /api/uploads/sign — Successful sign", () => {
 
     const body = await res.json();
     expect(body.uploadUrl).toBe(PRESIGNED_URL);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// describe G — kind=asset (Phase 2)
+// ---------------------------------------------------------------------------
+
+describe("POST /api/uploads/sign — kind=asset (Phase 2)", () => {
+  const DB_USER_ID = "db-user-id";
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mockAuth.mockResolvedValue({ userId: VALID_USER_ID });
+    mockCurrentUser.mockResolvedValue({ id: VALID_USER_ID });
+    mockRequireActiveDbUser.mockResolvedValue({ id: DB_USER_ID, suspendedAt: null });
+    mockGetPresignedPutUrl.mockResolvedValue(PRESIGNED_URL);
+    mockBuildAssetKey.mockImplementation(
+      (userId: string, assetId: string) => `assets/${userId}/${assetId}/asset.glb`
+    );
+    // Default: world belongs to current user
+    makeDbSelectChain([{ userId: DB_USER_ID }]);
+  });
+
+  it("returns 400 when assetId is missing for kind=asset", async () => {
+    const res = await POST(
+      makeRequest({
+        kind: "asset",
+        worldId: VALID_WORLD_ID,
+        contentType: "model/gltf-binary",
+        sizeBytes: 1024,
+        // assetId intentionally omitted
+      })
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/assetId is required/i);
+  });
+
+  it("returns 404 when worldId does not exist", async () => {
+    makeDbSelectChain([]); // world not found
+    const res = await POST(
+      makeRequest({
+        kind: "asset",
+        worldId: VALID_WORLD_ID,
+        contentType: "model/gltf-binary",
+        sizeBytes: 1024,
+        assetId: VALID_ASSET_ID,
+      })
+    );
+
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.error).toMatch(/not found/i);
+  });
+
+  it("returns 403 when worldId belongs to a different user", async () => {
+    makeDbSelectChain([{ userId: "some-other-db-user-id" }]);
+    const res = await POST(
+      makeRequest({
+        kind: "asset",
+        worldId: VALID_WORLD_ID,
+        contentType: "model/gltf-binary",
+        sizeBytes: 1024,
+        assetId: VALID_ASSET_ID,
+      })
+    );
+
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toBe("Forbidden");
+  });
+
+  it("returns 200 with objectKey = assets/{clerkUserId}/{assetId}/asset.glb on success", async () => {
+    const res = await POST(
+      makeRequest({
+        kind: "asset",
+        worldId: VALID_WORLD_ID,
+        contentType: "model/gltf-binary",
+        sizeBytes: 1024,
+        assetId: VALID_ASSET_ID,
+      })
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.objectKey).toBe(
+      `assets/${VALID_USER_ID}/${VALID_ASSET_ID}/asset.glb`
+    );
+    expect(body.uploadUrl).toBe(PRESIGNED_URL);
+  });
+
+  it("calls getPresignedPutUrl with bucket='glb' for kind=asset", async () => {
+    await POST(
+      makeRequest({
+        kind: "asset",
+        worldId: VALID_WORLD_ID,
+        contentType: "model/gltf-binary",
+        sizeBytes: 2048,
+        assetId: VALID_ASSET_ID,
+      })
+    );
+
+    expect(mockGetPresignedPutUrl).toHaveBeenCalledOnce();
+    expect(mockGetPresignedPutUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bucket: "glb",
+        contentType: "model/gltf-binary",
+        contentLength: 2048,
+      })
+    );
+  });
+
+  it("rejects application/octet-stream that exceeds 50 MB for kind=asset", async () => {
+    const ASSET_MAX = 52428800;
+    const res = await POST(
+      makeRequest({
+        kind: "asset",
+        worldId: VALID_WORLD_ID,
+        contentType: "application/octet-stream",
+        sizeBytes: ASSET_MAX + 1,
+        assetId: VALID_ASSET_ID,
+      })
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(typeof body.error).toBe("string");
   });
 });

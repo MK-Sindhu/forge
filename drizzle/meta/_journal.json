@@ -78,6 +78,13 @@
       "when": 1779569000000,
       "tag": "0010_phase2_scene_graph_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1779569001001,
+      "tag": "0011_phase2_scene_graph_api",
+      "breakpoints": true
     }
   ]
 }

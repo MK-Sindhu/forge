@@ -11,6 +11,7 @@ import {
   S3Client,
   HeadObjectCommand,
   PutObjectCommand,
+  DeleteObjectCommand,
   type HeadObjectCommandOutput,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -242,4 +243,41 @@ export function buildMediaKey(
   ext: string
 ): string {
   return `worlds/${userId}/${worldId}/media/${mediaId}.${ext}`;
+}
+
+/**
+ * Canonical key for a world asset (a reusable .glb in a scene graph).
+ * Example: assets/user_abc/asset_xyz/asset.glb
+ *
+ * Phase 2 introduces asset uploads as reusable building blocks for scene
+ * graphs — distinct from the world's binary at worlds/{userId}/{worldId}/
+ * world.glb. Both live in the `forge-glb` bucket, separated by prefix.
+ */
+export function buildAssetKey(userId: string, assetId: string): string {
+  return `assets/${userId}/${assetId}/asset.glb`;
+}
+
+/**
+ * Best-effort delete of an R2 object. Used after a world_asset DB row is
+ * removed to clean up the underlying file. NotFound (404 / NoSuchKey) is
+ * treated as success — the object is gone either way. Other errors rethrow.
+ *
+ * Callers should wrap in try/catch — Phase 2 leaves orphans tolerable; we
+ * don't want a transient R2 hiccup to surface as a user-visible 503 after
+ * the DB row is already gone.
+ */
+export async function deleteObject(args: {
+  bucket: R2BucketKind;
+  objectKey: string;
+}): Promise<void> {
+  const command = new DeleteObjectCommand({
+    Bucket: resolveBucketName(args.bucket),
+    Key: args.objectKey,
+  });
+  try {
+    await getR2Client().send(command);
+  } catch (err) {
+    if (isNotFoundError(err)) return;  // already gone; that's fine
+    throw err;
+  }
 }

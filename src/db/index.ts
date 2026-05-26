@@ -22,4 +22,4 @@ export const db = drizzleHttp({ client: sql, schema });
 // this pool-backed client does.
 // ---------------------------------------------------------------------------
 const pool = new Pool({ connectionString: url });
-export const dbPool = drizzlePool({ client: pool });
+export const dbPool = drizzlePool({ client: pool, schema });

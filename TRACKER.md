@@ -2,7 +2,7 @@
 
 > The "what is done, what is left, what is in-flight" doc. Updated after every slice ships and after every prod smoke test.
 
-**Last updated:** 2026-05-25
+**Last updated:** 2026-05-26
 
 ---
 
@@ -10,16 +10,16 @@
 
 | | |
 |---|---|
-| Current phase | Phase 1 — Launch |
-| Current slice | None — Slice 7 verified in prod 2026-05-25; launch ops remaining |
-| In-flight | Launch ops — DMCA email + attorney review of Terms/Privacy + click Enable on Vercel Analytics + public launch posts |
-| Tests | 417 across 21 test files |
-| Commits on main | 25 (Slice 7 = 5 sub-slice commits da31b12 → e18dd6b · 2 layout hotfixes dd8c8f6 + 065d572 · status flip 218992f) |
-| Latest commit | `218992f` — docs: Slice 7 verified in prod 2026-05-25 — all 5 sub-slices ✅ |
+| Current phase | Phase 2 — Architectural Pivot |
+| Current slice | Sub-slice 8.2 (Scene Graph API) shipped 🟢 — prod migration pending |
+| In-flight | Awaiting founder prod migration for 0010 + 0011; then 8.3 (improved upload + folder-watcher CLI) |
+| Tests | 518 across 30 test files |
+| Commits on main | Slices 0–7 + 8.1 baseline + 8.2 closeout (latest commit pending) |
+| Latest commit | (this commit — Phase 2 sub-slice 8.2 Scene Graph API) |
 | Branch state | `main` clean, in sync with `origin/main` |
 | Production | https://forge-black-eta.vercel.app |
-| DB | Neon Postgres — 12 tables, 9 migrations applied (0008 + 0009 = view tracking + notifications) |
-| Storage | Cloudflare R2 — 2 buckets (forge-glb, forge-media) |
+| DB | Neon Postgres — 14 tables, 11 migrations applied locally (0010 = 8.1 substrate; 0011 = 8.2 indexes). **Prod migration for 0010 + 0011 pending founder action.** |
+| Storage | Cloudflare R2 — 2 buckets (forge-glb, forge-media); 8.2 adds `assets/{userId}/{assetId}/asset.glb` prefix under `forge-glb` |
 
 ## 2. Phase Rollup
 
@@ -27,7 +27,7 @@
 |---|---|---|
 | Phase 0 — Foundation | ✅ COMPLETE | Slices 0–6 shipped |
 | Phase 1 — Launch | 🟡 IN PROGRESS | Slice 7 ✅ verified 2026-05-25; launch ops next (Terms, DMCA, onboarding, seed worlds, analytics, public launch) |
-| Phase 2 — Architectural Pivot | 🟡 IN PROGRESS | Sub-slice 8.1 (Scene Graph Foundation) shipped 2026-05-26; 8.2 (API) · 8.3 (upload + folder-watcher CLI) · 8.4 (browser editor) · 8.5 (back-compat conversion) next. 8.6 (AI assist) parked per founder direction. |
+| Phase 2 — Architectural Pivot | 🟡 IN PROGRESS | Sub-slices 8.1 (Scene Graph Foundation) + 8.2 (Scene Graph API) shipped 2026-05-26; 8.3 (improved upload + folder-watcher CLI) · 8.4 (browser editor) · 8.5 (back-compat conversion) next. 8.6 (AI assist) parked per founder direction. |
 | Phase 3 — Collaboration | ⬜ NOT STARTED | Async → Presence → Realtime edit |
 | Phase 4 — Living Worlds | ⬜ NOT STARTED | Interactivity + portals + scripting |
 | Phase 5 — Persistent Ecosystem | ⬜ NOT STARTED | Cross-world identity, asset library, full AI gen |
@@ -175,13 +175,30 @@ Schema additions + locked design decisions for Slice 7 are recorded in `PROJECT.
 | # | Sub-slice | Status |
 |---|---|---|
 | 8.1 | Scene Graph Foundation — storage substrate + renderer split | 🟢 |
-| 8.2 | Scene Graph API — operations-based REST + permissions + audit log | ⬜ |
+| 8.2 | Scene Graph API — operations-based REST + permissions + audit log | 🟢 |
 | 8.3 | Improved Upload Pipeline + Folder-Watcher CLI | ⬜ |
 | 8.4 | Browser Editor — first client of the API | ⬜ |
 | 8.5 | Backward Compatibility + Conversion Tool | ⬜ |
 | ~~8.6~~ | ~~AI Editor Assist~~ — PARKED per founder direction, see `DEFERRED.md` | — |
 
 Locked design decisions for Phase 2 are recorded in `PROJECT.md` §7 decision log and the plan file. See `docs/3d.md` "Phase 2 — Scene Graph Rendering" for renderer architecture and `src/lib/scene-graph/schema.ts` for the v1 schema.
+
+#### Slice 8.2 — Scene Graph API 🟢
+
+| | |
+|---|---|
+| Status | Shipped + deployed; prod migration (0011) pending |
+| What | The mutation API on top of 8.1's substrate. Operations-based REST surface every future editing surface (browser editor in 8.4, Blender plugin, desktop shell, any AI tool, future "web native" client) becomes a client of. 7 routes (1 modified + 6 new) on top of 2 new pure library modules. Optimistic concurrency via `baseVersionId` with **full** `currentVersion` body in 409 responses (saves a rebase round-trip). Every save creates an immutable `world_versions` row — doubles as the audit log. Strict referential integrity on asset DELETE (refuses 409 if any past version references the asset). **No frontend changes** — 8.4 is the first client. |
+| Schema additions | Two `world_versions` indexes — `(world_id, status)` for "find latest published"; `(parent_version_id)` for version-tree traversal in 8.5 |
+| Migration | `0011_phase2_scene_graph_api.sql` (additive — two indexes only; zero downtime) |
+| New library modules | `src/lib/scene-graph/operations.ts` (8 op Zod schemas + `applyOps` pure reducer + `OperationError` + `MAX_OPS_PER_BATCH = 100` + `OpsBatchSchema`) · `src/lib/world-permissions.ts` (`requireWorldRole(worldId, dbUser, role)` returns `{ world, role }`; Phase-3-ready — extending to editor/viewer is a single block inside the helper, route handlers don't change) |
+| R2 helpers | `buildAssetKey(userId, assetId)` → `assets/{userId}/{assetId}/asset.glb` · `deleteObject({ bucket, objectKey })` best-effort cleanup |
+| API surface — modified | `POST /api/uploads/sign` extended with `kind: "asset"` (single upload-signing surface; assets reuse `forge-glb` bucket under the new prefix; 50 MB cap) |
+| API surface — 6 new routes | `GET /api/worlds/[id]/scene-graph` (public; resolves "latest draft if newer than published, else latest published") · `POST /api/worlds/[id]/scene-graph/ops` (owner-only; ops batch ≤100; optimistic concurrency 409 with full rebase body) · `GET /api/worlds/[id]/versions` (public; cursor-paged audit log; author hydrated; sceneGraph excluded for size) · `POST /api/worlds/[id]/versions/[v]/publish` (owner-only; idempotent; cross-world id-guard) · `POST/GET /api/worlds/[id]/assets` (owner-only POST after HEAD-verified R2 upload; public GET capped at 100) · `DELETE /api/worlds/[id]/assets/[assetId]` (owner-only; **strict integrity** — 409 with `referencedBy.versionNumber` if any past `world_versions.scene_graph` references the asset; best-effort R2 cleanup post-commit) |
+| Other fixes | `src/db/index.ts` — one-line `dbPool` schema wiring (resolves Slice 7 Known Issue #5 — relational `tx.query.*` now works inside transactions, used by the ops route) |
+| Documentation | **`docs/scene-graph-api.md` NEW** (1,130 lines / 5,382 words; public-API-quality reference covering operations, endpoints, optimistic concurrency, permission model, versioning model, asset model, limits, example curl flows — quality bar: a competent engineer could write a Blender plugin from this alone). `docs/backend.md` + `docs/infra.md` + `docs/testing.md` updated. |
+| Tests | 445 → 518 (+73 across 8 new test files: ops reducer + permissions helper + 6 route test files) |
+| Smoke checklist (prod) | (1) `npm run db:smoke` confirms `world_versions` has both new indexes · (2) `GET /scene-graph` for a legacy world → `{ sceneGraph: null, versionId: null, ... }` · (3) `GET /versions` for legacy → `{ versions: [], nextCursor: null }` · (4) `GET /assets` for legacy → `{ assets: [] }` · (5) Manual presign `kind: "asset"` returns presigned URL with `assets/{clerkId}/{assetId}/asset.glb` key · (6) PUT to URL + `POST /assets` returns 201 + row visible · (7) `POST /scene-graph/ops` with `add_object` → 200 + new version; `GET /scene-graph` reflects it · (8) Stale `baseVersionId` → 409 with full rebase body · (9) `POST /versions/[v]/publish` → 200 + subsequent GET shows `status: "published"` · (10) DELETE in-use asset → 409 with `referencedBy.versionNumber` · (11) DELETE unused asset → 200 + R2 object cleaned (best-effort) · (12) All 31 legacy worlds still render identically · (13) CI green |
 
 ## 4. Known Issues / Follow-ups (Open)
 
@@ -193,13 +210,13 @@ Things that work but should be cleaned up before or shortly after launch.
 | 2 | `/legal/dmca` placeholder email (`dmca@forge.example`) | **Blocker for public launch** | `src/app/legal/dmca/page.tsx` |
 | 3 | `/legal/terms` draft shipped — reviewable starting point exists. Attorney review still required before public launch; governing law + contact email are explicit placeholders in the file. | **Still needs attorney review + final copy before public launch** | `src/app/legal/terms/page.tsx` |
 | 4 | Slices 2, 4, 5 deployed but not yet prod-smoke-tested (Slices 6 + 7 verified) | Medium | Production |
-| 5 | `dbPool` (WebSocket Drizzle client) doesn't have schema wired — `db.query.*` only works on `db` (HTTP). If a route needs transactions AND relational queries, fix this. | Low | `src/db/*.ts` |
+| 5 | ~~`dbPool` (WebSocket Drizzle client) doesn't have schema wired — `db.query.*` only works on `db` (HTTP).~~ **Resolved 2026-05-26 (Slice 8.2)** — `src/db/index.ts` one-line fix: `drizzlePool({ client: pool, schema })`. Relational `tx.query.*` now works inside transactions; used by `POST /scene-graph/ops`. | — | `src/db/index.ts` |
 
 ## 5. Test Coverage
 
 | Metric | Value |
 |---|---|
-| **Total** | **21 test files / 417 tests** — all passing on main |
+| **Total** | **30 test files / 518 tests** — all passing on main |
 | Per-slice inventory | See `docs/testing.md` "Test Inventory by Slice" — owned + maintained by `test-engineer` |
 | 3D / R3F component tests | None (deferred to Phase 2 per `docs/testing.md`) |
 | E2E (Playwright/Cypress) | None (unit + integration only) |
@@ -213,9 +230,9 @@ Run anytime to verify state:
 ```bash
 git log --oneline -5            # Recent commits
 git status                       # Clean tree expected
-npm test                         # 311 tests expected
+npm test                         # 518 tests expected
 npm run build                    # Clean build expected
-npm run db:smoke                 # All 9 tables present, current row counts
+npm run db:smoke                 # All 14 tables present, current row counts
 ```
 
 ## 7. How to Update This Doc

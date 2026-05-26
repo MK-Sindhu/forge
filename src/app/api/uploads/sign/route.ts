@@ -18,9 +18,12 @@
 
 import { NextResponse } from "next/server";
 import { auth, currentUser } from "@clerk/nextjs/server";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { getPresignedPutUrl, buildGlbKey, buildThumbnailKey, buildMediaKey } from "@/lib/r2";
+import { getPresignedPutUrl, buildGlbKey, buildThumbnailKey, buildMediaKey, buildAssetKey } from "@/lib/r2";
 import { requireActiveDbUser } from "@/lib/users";
+import { db } from "@/db";
+import { worlds } from "@/db/schema";
 
 // ---------------------------------------------------------------------------
 // Per-kind validation rules
@@ -57,6 +60,16 @@ const KIND_RULES = {
     contentTypes: ["video/mp4"] as readonly string[],
     maxBytes: 15 * 1024 * 1024, // 15728640
   },
+  // Phase 2 — world asset uploads (.glb files that compose into scene graphs)
+  // Reuses the same content types + size cap as the top-level GLB upload.
+  asset: {
+    contentTypes: [
+      "model/gltf-binary",
+      "model/gltf+json",
+      "application/octet-stream",
+    ] as readonly string[],
+    maxBytes: 50 * 1024 * 1024, // 52428800
+  },
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -84,8 +97,10 @@ function extForImageContentType(contentType: string): string {
 // ---------------------------------------------------------------------------
 
 const BodySchema = z.object({
-  kind: z.enum(["glb", "thumbnail", "image", "video"]),
+  kind: z.enum(["glb", "thumbnail", "image", "video", "asset"]),
   // Client generates this with crypto.randomUUID() — must be UUID v4.
+  // Required for all kinds. For "asset", this is the owning world's id (used
+  // for ownership verification only — the R2 key uses assetId, not worldId).
   worldId: z.string().uuid(),
   contentType: z.string().min(1),
   // Must be a positive integer — rejects 0, floats, negatives.
@@ -93,6 +108,9 @@ const BodySchema = z.object({
   // Required when kind is "image" or "video" — client generates a fresh UUID
   // per media item so multiple image/video uploads don't collide.
   mediaId: z.string().uuid().optional(),
+  // Required when kind is "asset" — the UUID for the new world_asset row.
+  // Client generates this with crypto.randomUUID() before calling this endpoint.
+  assetId: z.string().uuid().optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -132,7 +150,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const { kind, worldId, contentType, sizeBytes, mediaId } = parsed;
+  const { kind, worldId, contentType, sizeBytes, mediaId, assetId } = parsed;
 
   // --- Require mediaId for image/video ----------------------------------------
   if ((kind === "image" || kind === "video") && !mediaId) {
@@ -140,6 +158,44 @@ export async function POST(req: Request) {
       { error: "mediaId is required for image and video uploads" },
       { status: 400 }
     );
+  }
+
+  // --- Require assetId for asset uploads + verify world ownership --------------
+  if (kind === "asset") {
+    if (!assetId) {
+      return NextResponse.json(
+        { error: "assetId is required for asset uploads" },
+        { status: 400 }
+      );
+    }
+
+    // Confirm worldId belongs to the current user — prevents uploading assets
+    // to worlds owned by others.
+    let worldRow: { userId: string } | undefined;
+    try {
+      const rows = await db
+        .select({ userId: worlds.userId })
+        .from(worlds)
+        .where(eq(worlds.id, worldId))
+        .limit(1);
+      worldRow = rows[0];
+    } catch (err) {
+      console.error("[POST /api/uploads/sign] world ownership lookup error:", err);
+      return NextResponse.json(
+        { error: "Database temporarily unavailable, please try again" },
+        { status: 503 }
+      );
+    }
+
+    if (!worldRow) {
+      return NextResponse.json({ error: "World not found" }, { status: 404 });
+    }
+
+    // userResult.id is the DB user id; userId (from auth()) is the Clerk id.
+    // The worlds table stores DB user ids so we compare against userResult.id.
+    if (worldRow.userId !== userResult.id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
   }
 
   // --- Per-kind content type check --------------------------------------------
@@ -179,6 +235,11 @@ export async function POST(req: Request) {
     // mediaId is guaranteed non-null here (checked above)
     objectKey = buildMediaKey(userId, worldId, mediaId!, ext);
     bucket = "media";
+  } else if (kind === "asset") {
+    // assetId is guaranteed non-null here (checked in the asset block above)
+    // R2 key: assets/{clerkUserId}/{assetId}/asset.glb — lives in the glb bucket
+    objectKey = buildAssetKey(userId, assetId!);
+    bucket = "glb";
   } else {
     // video — only video/mp4 is allowed per KIND_RULES
     objectKey = buildMediaKey(userId, worldId, mediaId!, "mp4");
