@@ -220,21 +220,6 @@ export default async function WorldPage(
         </span>
       </div>
 
-      {/* Updates timeline — creator-driven content; shown above community comments */}
-      <UpdatesTimeline
-        worldId={world.id}
-        isOwner={currentUserDbId === world.author.id}
-      />
-
-      {/* Comments section */}
-      <CommentsSection
-        worldId={world.id}
-        worldOwnerId={world.author.id}
-        initialCommentsCount={world.commentsCount}
-        signedIn={signedIn}
-        currentUserDbId={currentUserDbId}
-      />
-
       {/* Owner-only Phase 2 tools:
           - Legacy world  → "Convert to editable scene graph" button
           - Scene-graph world → Version history (immutable snapshots + publish) */}
@@ -252,11 +237,27 @@ export default async function WorldPage(
         </>
       )}
 
-      {/* Collaborators — visible to everyone; owner sees invite/remove, collaborator sees leave */}
+      {/* Collaborators — visible to everyone; owner sees invite/remove, collaborator sees leave.
+          Sits above Updates + Comments so world-management tools are grouped at the top. */}
       <CollaboratorsSection
         worldId={world.id}
         isOwner={currentUserDbId === world.author.id}
         currentUserId={currentUserDbId}
+      />
+
+      {/* Updates timeline — creator-driven content; shown above community comments */}
+      <UpdatesTimeline
+        worldId={world.id}
+        isOwner={currentUserDbId === world.author.id}
+      />
+
+      {/* Comments section */}
+      <CommentsSection
+        worldId={world.id}
+        worldOwnerId={world.author.id}
+        initialCommentsCount={world.commentsCount}
+        signedIn={signedIn}
+        currentUserDbId={currentUserDbId}
       />
     </main>
   );

@@ -169,6 +169,49 @@ export default function WorldVisitor({
     joystickInputRef.current.rightY = v.y;
   };
 
+  // ---------------------------------------------------------------------------
+  // Fullscreen keyboard shortcut — desktop walk mode only.
+  //
+  // Why a key (not the corner button) in walk mode: PointerLockControls
+  // captures mouse input while the lock is engaged, so a corner button click
+  // is unreachable. Keys still fire normally — bind F to toggle fullscreen on
+  // the same container the FullscreenButton operates on.
+  //
+  // Gated on `mode === "walking"` so it doesn't shadow normal F-key behavior
+  // (typing, browser shortcuts) outside walk mode. Skipped on touch (no
+  // keyboard) — phones rely on the corner button + native browser controls.
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (mode !== "walking" || isTouchDevice) return;
+
+    function onKeyDown(e: KeyboardEvent) {
+      // Don't trigger when focus is in an input (e.g., chat panel).
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (e.key !== "f" && e.key !== "F") return;
+      e.preventDefault();
+      const el = containerRef.current;
+      if (!el) return;
+      if (document.fullscreenElement === el) {
+        void document.exitFullscreen().catch(() => {});
+      } else {
+        void el.requestFullscreen().catch((err) => {
+          console.warn("[WorldVisitor] fullscreen request failed:", err);
+        });
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [mode, isTouchDevice]);
+
   // Build a stable assets-by-id map.
   const assetsById = useMemo(
     () => Object.fromEntries(assets.map((a) => [a.id, a])),

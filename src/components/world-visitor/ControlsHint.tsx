@@ -81,8 +81,8 @@ export function ControlsHint({ isTouchDevice }: Props) {
   }
 
   const hintText = isTouchDevice
-    ? "Left stick to move · Right stick to look · Tap Exit to leave · Walks through walls for now"
-    : "WASD to move · Mouse to look · Shift to run · ESC to exit · Walks through walls for now";
+    ? "Left stick to move · Right stick to look · Tap Exit to leave"
+    : "WASD to move · Mouse to look · Shift to run · F for fullscreen · T to chat · ESC to exit";
 
   return (
     // Outer: covers the full screen but pointer-events: none so canvas stays interactive.

@@ -32,7 +32,7 @@ export function EnterWorldOverlay({ onEnter }: Props) {
         </button>
 
         <p className="text-center text-xs text-neutral-500 dark:text-neutral-400">
-          WASD to move&nbsp;&middot;&nbsp;Mouse to look&nbsp;&middot;&nbsp;Shift to run&nbsp;&middot;&nbsp;ESC to exit
+          WASD to move&nbsp;&middot;&nbsp;Mouse to look&nbsp;&middot;&nbsp;Shift to run&nbsp;&middot;&nbsp;F for fullscreen&nbsp;&middot;&nbsp;T to chat&nbsp;&middot;&nbsp;ESC to exit
         </p>
       </div>
     </div>
