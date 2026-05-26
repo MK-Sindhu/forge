@@ -3,9 +3,9 @@ import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import Image from "next/image";
 import { auth } from "@clerk/nextjs/server";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { db } from "@/db";
-import { users, worlds } from "@/db/schema";
+import { users, worlds, worldCollaborators } from "@/db/schema";
 import { WorldVisitorClient } from "@/components/world-visitor/WorldVisitorClient";
 import type { SceneGraphV1 } from "@/lib/scene-graph/schema";
 import { buildSyntheticSceneGraph, buildSyntheticAssets } from "@/lib/scene-graph/synthetic";
@@ -129,6 +129,31 @@ export default async function WorldPage(
     currentUserDbId = dbUser?.id ?? null;
   }
 
+  // Determine whether the current viewer has edit access (owner OR editor
+  // collaborator). Used to gate the "Edit world" CTA. Direct check avoids
+  // fetching a full DbUser row just to call getWorldRoleForUser — two simple
+  // queries, one of which short-circuits on owner match. ~5ms on Neon edge.
+  let canEdit = false;
+  if (currentUserDbId) {
+    if (world.author.id === currentUserDbId) {
+      // Owner shortcut — no collaborator query needed
+      canEdit = true;
+    } else {
+      // Editor-collaborator check: any row in world_collaborators = can edit
+      const [collab] = await db
+        .select({ role: worldCollaborators.role })
+        .from(worldCollaborators)
+        .where(
+          and(
+            eq(worldCollaborators.worldId, world.id),
+            eq(worldCollaborators.userId, currentUserDbId),
+          )
+        )
+        .limit(1);
+      canEdit = !!collab;
+    }
+  }
+
   return (
     <main className="mx-auto max-w-5xl px-4 py-8">
       <ViewTracker worldId={world.id} signedIn={signedIn} />
@@ -202,6 +227,21 @@ export default async function WorldPage(
           />
         </LiveblocksRoomProvider>
       </div>
+
+      {/* Edit world CTA — visible only to owners + editor collaborators,
+          and only for scene-graph worlds (the editor page refuses legacy ones).
+          Placed here — immediately below the viewer — so it's the first thing
+          an editor sees after the 3D preview loads. */}
+      {canEdit && (world.sceneGraph as SceneGraphV1 | null) !== null && (
+        <div className="mt-6 flex justify-end">
+          <a
+            href={`/world/${world.id}/edit`}
+            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          >
+            Edit world →
+          </a>
+        </div>
+      )}
 
       {/* Description (only if present) */}
       {world.description && (
