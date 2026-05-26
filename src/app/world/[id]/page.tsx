@@ -6,9 +6,9 @@ import { auth } from "@clerk/nextjs/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { users, worlds } from "@/db/schema";
-import { WorldViewerClient } from "./WorldViewerClient";
 import { WorldVisitorClient } from "@/components/world-visitor/WorldVisitorClient";
 import type { SceneGraphV1 } from "@/lib/scene-graph/schema";
+import { buildSyntheticSceneGraph, buildSyntheticAssets } from "@/lib/scene-graph/synthetic";
 import MediaCarousel from "@/components/media-carousel/MediaCarousel";
 import { LikeButton } from "@/components/like-button/LikeButton";
 import { RepostButton } from "@/components/repost-button/RepostButton";
@@ -175,22 +175,31 @@ export default async function WorldPage(
       )}
 
       {/* 3D viewer — fills a fixed-aspect container.
-          Branches on sceneGraph: scene-graph worlds use WorldVisitorClient (walk mode)
-          wrapped in LiveblocksRoomProvider so all descendants get presence + chat hooks.
-          Legacy single-GLB worlds (sceneGraph === null) use WorldViewerClient — no
-          Liveblocks (legacy worlds don't support walk mode, so presence is irrelevant). */}
+          Every world is rendered via WorldVisitorClient (walk mode + presence + chat)
+          wrapped in LiveblocksRoomProvider. Legacy single-GLB worlds get a synthetic
+          scene graph built in-memory from the world's `.glb` (no DB write — same shape
+          the convert route persists), so non-owners can walk in any world without
+          waiting for the owner to convert. When the owner DOES click "Convert to scene
+          graph", the persisted scene graph takes over transparently. */}
       <div className="aspect-video w-full overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-800">
-        {(world.sceneGraph as SceneGraphV1 | null) ? (
-          <LiveblocksRoomProvider worldId={world.id}>
-            <WorldVisitorClient
-              sceneGraph={world.sceneGraph as SceneGraphV1}
-              assets={world.assets as Array<{ id: string; name: string; glbUrl: string; sizeBytes: number }>}
-              ariaLabel={`3D world: ${world.title}`}
-            />
-          </LiveblocksRoomProvider>
-        ) : (
-          <WorldViewerClient glbUrl={world.glbUrl} ariaLabel={`3D world: ${world.title}`} />
-        )}
+        <LiveblocksRoomProvider worldId={world.id}>
+          <WorldVisitorClient
+            sceneGraph={
+              (world.sceneGraph as SceneGraphV1 | null) ??
+              buildSyntheticSceneGraph(world.id)
+            }
+            assets={
+              (world.sceneGraph as SceneGraphV1 | null)
+                ? (world.assets as Array<{ id: string; name: string; glbUrl: string; sizeBytes: number }>)
+                : buildSyntheticAssets({
+                    worldId: world.id,
+                    glbUrl: world.glbUrl,
+                    glbSizeBytes: world.glbSizeBytes ?? null,
+                  })
+            }
+            ariaLabel={`3D world: ${world.title}`}
+          />
+        </LiveblocksRoomProvider>
       </div>
 
       {/* Description (only if present) */}
