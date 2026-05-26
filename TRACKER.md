@@ -2,7 +2,7 @@
 
 > The "what is done, what is left, what is in-flight" doc. Updated after every slice ships and after every prod smoke test.
 
-**Last updated:** 2026-05-26 (8.4 close)
+**Last updated:** 2026-05-26 (9.1 close)
 
 ---
 
@@ -10,12 +10,12 @@
 
 | | |
 |---|---|
-| Current phase | Phase 2 — Architectural Pivot |
-| Current slice | Sub-slice 8.4 (Browser Editor — the headline visible feature) shipped 🟢 — prod migration for 0010 + 0011 still pending |
-| In-flight | Awaiting founder prod migration + 8.4 prod smoke. Phase 2 substantially complete. |
-| Tests | 659 across 40 test files |
-| Commits on main | Slices 0–7 + 8.1 + 8.2 + 8.3 + 8.4 closeout (latest commit pending) |
-| Latest commit | (this commit — Phase 2 sub-slice 8.4 Browser Editor) |
+| Current phase | Slice 9 — "Worlds Are Spaces" reframe (bridge between Phase 2 and Phase 3) |
+| Current slice | Sub-slice 9.1 (Walk mode + collision + copy reframe) shipped 🟢. 9.2 (collaborators) + 9.3 (presence + chat via Liveblocks) next. |
+| In-flight | Awaiting founder prod migration for 0010 + 0011 (Phase 2 schema; 9.1 adds no migrations); then prod smoke 9.1 + start 9.2. |
+| Tests | 711 across 46 test files |
+| Commits on main | Slices 0–7 + Phase 2 (8.1–8.4) + Slice 9.1 closeout (latest commit pending) |
+| Latest commit | (this commit — Slice 9.1 Walk mode + collision + copy reframe) |
 | Branch state | `main` clean, in sync with `origin/main` |
 | Production | https://forge-black-eta.vercel.app |
 | DB | Neon Postgres — 14 tables, 11 migrations applied locally (0010 = 8.1 substrate; 0011 = 8.2 indexes). **Prod migration for 0010 + 0011 pending founder action.** |
@@ -28,7 +28,8 @@
 | Phase 0 — Foundation | ✅ COMPLETE | Slices 0–6 shipped |
 | Phase 1 — Launch | 🟡 IN PROGRESS | Slice 7 ✅ verified 2026-05-25; launch ops next (Terms, DMCA, onboarding, seed worlds, analytics, public launch) |
 | Phase 2 — Architectural Pivot | 🟢 SUBSTANTIALLY COMPLETE | Sub-slices 8.1 (Scene Graph Foundation) + 8.2 (Scene Graph API) + 8.3 (Improved Upload + Convert + Folder-Watcher CLI; absorbs 8.5 scope) + 8.4 (Browser Editor) all shipped 2026-05-26. ~~8.5~~ absorbed into 8.3. 8.6 (AI assist) parked per founder direction. Awaiting founder prod migration + prod smoke to flip 🟢 → ✅. |
-| Phase 3 — Collaboration | ⬜ NOT STARTED | Async → Presence → Realtime edit |
+| Slice 9 — "Worlds Are Spaces" reframe | 🟡 IN PROGRESS | Bridge between Phase 2 and Phase 3 driven by founder's clarification: worlds are interactive virtual spaces, not 3D models to view. Sub-slice 9.1 (walk mode + collision + copy reframe) shipped 2026-05-26 🟢. 9.2 (collaborators — pulls async-collab from Phase 3) + 9.3 (multi-user presence + chat via Liveblocks — pulls presence from Phase 3) next. |
+| Phase 3 — Collaboration | ⬜ NOT STARTED | After Slice 9: realtime editor presence + voice chat + kick/mute moderation tools (the remaining Phase 3 work after 9 absorbs async-collab + visitor presence). |
 | Phase 4 — Living Worlds | ⬜ NOT STARTED | Interactivity + portals + scripting |
 | Phase 5 — Persistent Ecosystem | ⬜ NOT STARTED | Cross-world identity, asset library, full AI gen |
 | Phase 6 — Long Horizon | ⬜ NOT STARTED | Federation, XR, scripting language |
@@ -235,6 +236,28 @@ Locked design decisions for Phase 2 are recorded in `PROJECT.md` §7 decision lo
 | Explicitly out of v1 (parking lot) | Multi-select · grouping · per-object material overrides · animations · grid snapping · prefabs · realtime collab (Phase 3) · phone touch gizmos (research project; 8.4.X follow-up if needed) · timeline scrubbing past versions (still-coming-soon note in version-history UI) |
 | Smoke checklist (prod) | (0) Prereq: 0010 + 0011 migrations applied to prod · (1) Convert a world (8.3 button) → click "Edit world" or navigate to `/world/[id]/edit` → see 3-panel editor · (2) Click an asset in the left panel → it appears at origin in the center viewport · (3) Click the object → TransformControls gizmo appears + properties panel populates · (4) Drag the gizmo → object moves; release → status bar shows "1 op applied" (or "Saving…" → "Saved") · (5) Press R → gizmo switches to rotate; S → scale · (6) Press Cmd+Z → object snaps back to previous transform (autosave still respects the undo — no orphaned ops sent to server) · (7) Press Delete with object selected → object disappears · (8) Switch to Lights tab → change sun intensity → 3D scene updates · (9) Switch to Environment tab → change skybox preset → environment updates · (10) Click "Save as version" → prompt for label → status bar confirms save · (11) Click "Publish" → confirm dialog → status updates · (12) Refresh page → all changes persist · (13) Visit `/world/[id]` (non-edit) as a visitor → see published version · (14) Resize browser to mobile (<768px) → "Switch to a bigger screen" notice appears · (15) Drag a new `.glb` onto the asset panel → uploads → appears in list · (16) CI green |
 
+### Slice 9 — "Worlds Are Spaces"
+
+Bridge between Phase 2 (architecture done) and Phase 3 (community features). Driven by founder's clarification that a world is an **interactive virtual space** — a city, forest, house — where users walk around, see each other, and chat. Pulls Phase 3's async-collab + visitor-presence pieces forward.
+
+#### Slice 9.1 — Walk mode + collision + copy reframe 🟢
+
+| | |
+|---|---|
+| Status | Shipped + deployed; **no migration needed** (prod migration for 0010 + 0011 still pending from Phase 2). First sub-slice of Slice 9. |
+| What | Replaces the orbit-only visitor renderer with a "preview → Enter world → walk mode" UX. Desktop: PointerLockControls + WASD + Shift-run. Touch: dual virtual joysticks (left=move, right=look). Raycast-based collision: wall-slide + floor-snap to walk up ramps; no jumping/flying/gravity in v1. Spawn from `sceneGraph.spawnPoints` (eye-level Y). ControlsHint banner first-time. ESC exits walk → preview. All user-facing "3D model" copy reframed to "world" / "space" / "Enter" / "Explore". Legacy worlds keep their existing `WorldViewer` renderer. |
+| New visitor architecture | `src/components/world-visitor/` directory · `WorldVisitor.tsx` (mode state) · `WorldVisitorClient.tsx` (`dynamic({ ssr: false })`) · `PreviewMode.tsx` (OrbitControls + authored camera) · `WalkMode.tsx` (desktop keyboard + PointerLockControls OR touch joystick ref reads + manual camera rotation) · `EnterWorldOverlay.tsx` · `MobileJoysticks.tsx` (dual joysticks; pointer-event-based; `setPointerCapture`) · `ControlsHint.tsx` (localStorage-dismissed first-time banner) · `use-touch-device.ts` (hydration-safe detection) |
+| Pure utilities | `movement.ts` (`computeMovement` — yaw-relative WASD + touch yaw/pitch + diagonal normalization + frame-rate-independent) · `collision.ts` (`applyCollision` — wall-slide via face-normal projection + floor-snap via downward raycast + `userData.collidable` filter + skin-width offset) |
+| Refactor | Extracted `SceneGraphScene` (and inner `AssetObject`) from `SceneGraphRenderer.tsx` to its own file `src/components/scene-graph-renderer/SceneGraphScene.tsx` so both renderer paths can compose it. |
+| Page wiring | `src/app/world/[id]/page.tsx` — `WorldVisitorClient` replaces `SceneGraphRendererClient`. Legacy `WorldViewerClient` path unchanged. |
+| Copy reframe (user-facing) | 9 string changes across `/world/[id]/page.tsx` (OG description) · `/upload/UploadForm.tsx` (Step 1 heading + input label + TOS checkbox + TOS error) · `/upload/page.tsx` (intro + metadata) · `/page.tsx` (feed empty state) · `/search/page.tsx` (OG description). `grep -r "3D model" src/app` returns zero hits. Aria-labels containing "3D world" preserved for screen readers. |
+| Schema/migration changes | NONE |
+| New dependencies | NONE |
+| Documentation | `docs/3d.md` extensively updated (visitor mode architecture, desktop/touch split, pointer-lock pattern, spawn resolution, EYE_HEIGHT, ref-registration map, collision algorithm) · `docs/frontend.md` updated (Chunks 4/6/7 sections + copy reframe table) · `docs/testing.md` updated (Slice 9 testing considerations: jsdom-directive gotcha, two-call raycaster mock pattern, IEEE 754 -0 in toBeCloseTo) |
+| Tests | 659 → 711 (+52 across 5 new test files): `movement.test.ts` (+8) · `collision.test.ts` (+7) · `use-touch-device.test.ts` (+4) · `ControlsHint.test.ts` (+7) · `MobileJoysticks.test.ts` (+20) · `EnterWorldOverlay.test.ts` (+6). R3F-Canvas-wrapping components (`WorldVisitor`/`WalkMode`/`PreviewMode`) NOT unit-tested — environment is `node`, no WebGL; pure logic seams covered, full integration via prod smoke. |
+| Explicitly out of v1 (parking lot, addressed in 9.2/9.3 or later) | Multi-user presence (9.3) · in-world chat (9.3) · "Invite collaborator" UI + editor-role gating (9.2) · jumping/flying/gravity physics (Phase 4) · trigger zones / portals (Phase 4) · voice chat (Phase 3) · persistent avatar customization (Phase 5) |
+| Smoke checklist (prod) | (0) Prereq: 0010 + 0011 migrations applied to prod (still pending from Phase 2) · (1) Visit a scene-graph world → see preview with "Enter world" CTA overlay · (2) Click Enter → pointer locks · WASD moves · mouse looks · Shift runs · ESC exits → returns to preview · (3) Walk into a wall → camera stops + slides along wall · (4) Walk up an inclined surface (a slanted asset) → camera Y snaps to follow the surface · (5) ControlsHint banner appears first time only · "Got it" dismisses + persists via localStorage · (6) Touch device (or DevTools device emulation in Chrome) → two on-screen joysticks instead of pointer-lock prompt · drag left = move · drag right = look · Exit button returns · (7) Legacy unconverted worlds keep working via legacy `WorldViewer` (orbit only) — untouched · (8) All upload + search + feed pages show new "world" / "space" copy; no "3D model" anywhere user-facing · (9) CI green |
+
 ## 4. Known Issues / Follow-ups (Open)
 
 Things that work but should be cleaned up before or shortly after launch.
@@ -251,7 +274,7 @@ Things that work but should be cleaned up before or shortly after launch.
 
 | Metric | Value |
 |---|---|
-| **Total** | **40 test files / 659 tests** — all passing on main |
+| **Total** | **46 test files / 711 tests** — all passing on main |
 | Per-slice inventory | See `docs/testing.md` "Test Inventory by Slice" — owned + maintained by `test-engineer` |
 | 3D / R3F component tests | None (deferred to Phase 2 per `docs/testing.md`) |
 | E2E (Playwright/Cypress) | None (unit + integration only) |
@@ -265,7 +288,7 @@ Run anytime to verify state:
 ```bash
 git log --oneline -5            # Recent commits
 git status                       # Clean tree expected
-npm test                         # 659 tests expected
+npm test                         # 711 tests expected
 npm run build                    # Clean build expected
 npm run db:smoke                 # All 14 tables present, current row counts
 ```

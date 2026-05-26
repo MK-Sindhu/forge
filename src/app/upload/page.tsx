@@ -5,7 +5,7 @@ import { UploadForm } from "./UploadForm";
 
 export const metadata: Metadata = {
   title: "Upload a world",
-  description: "Upload your .glb file and publish a new 3D world to FORGE.",
+  description: "Upload a .glb to publish your world — a space others can enter and explore.",
 };
 
 export default async function UploadPage() {
@@ -17,7 +17,7 @@ export default async function UploadPage() {
     <main className="mx-auto max-w-2xl px-4 py-12">
       <h1 className="text-3xl font-semibold tracking-tight">Upload a world</h1>
       <p className="mt-2 text-neutral-600 dark:text-neutral-400">
-        Share a 3D world you&apos;ve made. We accept .glb files up to 50 MB.
+        Upload a .glb to publish your world — a space others can enter and explore. Maximum 50 MB.
       </p>
       <UploadForm />
     </main>

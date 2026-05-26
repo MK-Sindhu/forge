@@ -7,7 +7,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { users, worlds } from "@/db/schema";
 import { WorldViewerClient } from "./WorldViewerClient";
-import { SceneGraphRendererClient } from "@/components/scene-graph-renderer/SceneGraphRendererClient";
+import { WorldVisitorClient } from "@/components/world-visitor/WorldVisitorClient";
 import type { SceneGraphV1 } from "@/lib/scene-graph/schema";
 import MediaCarousel from "@/components/media-carousel/MediaCarousel";
 import { LikeButton } from "@/components/like-button/LikeButton";
@@ -57,7 +57,7 @@ export async function generateMetadata(
   const url = `/world/${worldRow.id}`;
   const description = (
     worldRow.description ??
-    `A 3D world on FORGE by @${worldRow.user.username}.`
+    `Visit ${worldRow.title} — a world by @${worldRow.user.username} on FORGE.`
   ).slice(0, 200);
 
   return {
@@ -173,11 +173,11 @@ export default async function WorldPage(
       )}
 
       {/* 3D viewer — fills a fixed-aspect container.
-          Branches on sceneGraph: scene-graph worlds use SceneGraphRendererClient;
+          Branches on sceneGraph: scene-graph worlds use WorldVisitorClient (walk mode);
           legacy single-GLB worlds (sceneGraph === null) use WorldViewerClient. */}
       <div className="aspect-video w-full overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-800">
         {(world.sceneGraph as SceneGraphV1 | null) ? (
-          <SceneGraphRendererClient
+          <WorldVisitorClient
             sceneGraph={world.sceneGraph as SceneGraphV1}
             assets={world.assets as Array<{ id: string; name: string; glbUrl: string; sizeBytes: number }>}
             ariaLabel={`3D world: ${world.title}`}

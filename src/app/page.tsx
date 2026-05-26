@@ -646,7 +646,7 @@ function ContextualEmptyState({
         No worlds yet — be the first.
       </p>
       <p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400">
-        Upload a .glb world you&apos;ve made.
+        Upload your first world — a space others can enter and explore.
       </p>
       {signedIn && (
         <Link

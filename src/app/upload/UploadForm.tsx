@@ -498,7 +498,7 @@ export function UploadForm() {
       setTitleError("");
     }
     if (!tosAccepted) {
-      setTosError("You must confirm you have the rights to share this model.");
+      setTosError("You must confirm you have the rights to share this world.");
       valid = false;
     } else {
       setTosError("");
@@ -1064,7 +1064,7 @@ export function UploadForm() {
       {step === "pick_glb" && (
         <section aria-labelledby="step1-heading">
           <h2 id="step1-heading" className="text-xl font-medium mb-1">
-            Step 1 of 5 — Select your 3D model
+            Step 1 of 5 — Pick your world file (.glb)
           </h2>
           <p className="text-sm text-neutral-500 dark:text-neutral-400 mb-4">
             Accepted formats: .glb, .gltf. Maximum size: 50 MB.
@@ -1075,7 +1075,7 @@ export function UploadForm() {
               htmlFor="glb-input"
               className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1"
             >
-              3D model file
+              World file (.glb)
             </label>
             <input
               id="glb-input"
@@ -1534,8 +1534,8 @@ export function UploadForm() {
                 htmlFor="tos-checkbox"
                 className="text-sm text-neutral-700 dark:text-neutral-300"
               >
-                I confirm I own the rights to this 3D model and have permission
-                to share it.
+                I confirm I own the rights to the contents of this world and
+                have permission to share it.
               </label>
             </div>
             {tosError && (

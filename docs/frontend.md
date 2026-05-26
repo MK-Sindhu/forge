@@ -103,7 +103,7 @@ src/
 |---|---|---|---|---|
 | `/` | `src/app/page.tsx` | Server | Feed (3 tabs via `?tab=`: Recent, Trending, Following). Cards show up to 3 tag chips + `+N more` overflow. Trending and Recent are public (no auth gate); Following redirects to sign-in if unauthenticated. **Onboarding:** `<WelcomeCallout />` renders above the tab bar for "fresh" signed-in users (no uploads + no follows). The `isFreshUser` flag is computed via two cheap 1-row DB probes (worlds + follows) immediately after the `currentDbUserId` lookup. Callout disappears automatically once user uploads or follows. `ContextualEmptyState` is now actionable: Following tab has "Browse Trending" + "Search worlds" buttons; Recent tab has "Upload your first world" button (signed-in only). | 1, 3, 4, 5, 7.1, 7.4, launch-ops |
 | `/search` | `src/app/search/page.tsx` | Server (public) | Full-text search results. Reads `?q=` and/or `?tag=`. Three branches: empty state (neither), FTS query (`q` only), tag filter (`tag` only), intersection (both). Direct DB query — no API route. Cap 50 results. `search_vector` is Postgres-managed (trigger-populated, not in Drizzle schema). `generateMetadata` produces dynamic title/description for shareable search URLs (e.g. `#mytag · FORGE`, `Search: "robots" · FORGE`). | 7.2, launch-polish |
-| `/world/[id]` | `src/app/world/[id]/page.tsx` | Server | World viewer page (3D + metadata + carousel + updates + comments + actions). Tag chips row below title. `generateMetadata` produces per-world OG + Twitter Card tags (title, description, thumbnail image, author). Direct DB query for metadata fetch (lean 3-column query — does not re-call the API route). **Viewer branch (8.1):** if `world.sceneGraph !== null`, renders `<SceneGraphRendererClient sceneGraph assets ariaLabel />` (multi-asset scene graph path); otherwise falls back to `<WorldViewerClient glbUrl ariaLabel />` (legacy single-GLB path). All existing worlds have `sceneGraph: null` and continue to render via the legacy path unchanged. **Owner-only Phase 2 tools (8.3 Chunk C):** if owner + legacy world (`sceneGraph === null`) → `<ConvertToSceneGraphButton>`; if owner + scene-graph world → `<VersionHistorySection>`. Non-owners see neither. The `GET /api/worlds/[id]` response now includes `publishedVersionId` (null for legacy worlds). | 1, 2, 3, 4, 5, 7.1, 8.1, 8.3, launch-polish |
+| `/world/[id]` | `src/app/world/[id]/page.tsx` | Server | World viewer page (3D + metadata + carousel + updates + comments + actions). Tag chips row below title. `generateMetadata` produces per-world OG + Twitter Card tags (title, description, thumbnail image, author). Direct DB query for metadata fetch (lean 3-column query — does not re-call the API route). **Viewer branch (9.1 Chunk 7):** if `world.sceneGraph !== null`, renders `<WorldVisitorClient sceneGraph assets ariaLabel />` (walk-mode visitor experience); otherwise falls back to `<WorldViewerClient glbUrl ariaLabel />` (legacy single-GLB path). All existing worlds have `sceneGraph: null` and continue to render via the legacy path unchanged. **Owner-only Phase 2 tools (8.3 Chunk C):** if owner + legacy world (`sceneGraph === null`) → `<ConvertToSceneGraphButton>`; if owner + scene-graph world → `<VersionHistorySection>`. Non-owners see neither. The `GET /api/worlds/[id]` response now includes `publishedVersionId` (null for legacy worlds). | 1, 2, 3, 4, 5, 7.1, 8.1, 8.3, 9.1, launch-polish |
 | `/world/[id]/edit` | `src/app/world/[id]/edit/page.tsx` | Server (owner-gated) | In-browser world editor. Auth + owner gates (redirect to sign-in if unauthenticated; inline forbidden page if not owner). Legacy worlds (sceneGraph=null) get an inline "convert first" page with a link back. Fetches latest `world_versions` row (inline DB query, no API round-trip) + up to 100 `world_assets` rows. Parses `SceneGraphV1` defensively (inline error page if parse fails). Renders `<EditorShell>` with serializable props. `generateMetadata` returns `"Editing: {title}"` title + `robots: noindex`. No OG image. | 8.4 Chunk B |
 | `/profile/[username]` | `src/app/profile/[username]/page.tsx` | Server | Profile (avatar, follower/following counts, world grid). Cards show up to 3 tag chips + `+N more` overflow. `generateMetadata` produces per-profile OG + Twitter Card tags (username, world count, avatar image). | 1, 3, 7.1, launch-polish |
 | `/upload` | `src/app/upload/page.tsx` + `UploadForm.tsx` | Client (`UploadForm`) | Multi-step upload form. Static `metadata` for browser tab clarity (`Upload a world · FORGE`). | 1, 2, launch-polish |
@@ -490,7 +490,63 @@ Pure logic layer for the in-browser world editor. No React components, no UI. La
 
 **Test count delta:** 644 → 659 (+15 new tests).
 
-### Still to come (Phase 2)
+### Sub-slice 9.1 Chunk 4 — Touch UI Components (shipped 2026-05-26)
 
-- Touch-friendly controls (tablets day-one, phones graceful-degradation)
+Pure DOM components (no R3F) that are wired into `WalkMode` in Chunk 5.
+
+**`use-touch-device.ts`** (`src/components/world-visitor/use-touch-device.ts`)
+- `"use client"` hook. Returns `boolean` — true if the device supports touch.
+- Hydration-safe pattern: `useState(false)` ensures first render always returns `false` (matching SSR output). Actual value is detected in `useEffect` via `"ontouchstart" in window || navigator.maxTouchPoints > 0` and written with `setIsTouch`.
+- `// eslint-disable-next-line react-hooks/set-state-in-effect` is required because the rule fires on any synchronous `setState` in an effect body, but this is intentional (hydration-safe mount-time detection — a canonical Next.js pattern).
+- Used by Chunk 5 (`WalkMode`) to gate which controls to render.
+- Test file: `src/components/world-visitor/use-touch-device.test.ts` (4 tests covering: false when no touch API present, true with `ontouchstart`, true with `maxTouchPoints > 0`, and hydration-safe initial-false convention).
+
+**`MobileJoysticks.tsx`** (`src/components/world-visitor/MobileJoysticks.tsx`)
+- `"use client"` component. Props: `{ onLeftStick, onRightStick }` — both are `(vec: { x: number; y: number }) => void`.
+- Renders two 120px virtual joystick circles anchored to the bottom-left and bottom-right screen corners.
+- Outer container: `position: fixed; inset: 0; z-index: 50; pointer-events: none` — leaves the canvas fully interactive between the two sticks.
+- Each stick: `pointer-events: auto; touch-action: none` — `touch-action: none` prevents browser pan/zoom when touching the joystick area.
+- Each stick has a 50px inner "handle" that follows the touch (via `transform: translate(deltaX, deltaY)` in the handle's inline style, capped to the stick radius).
+- **Pointer event strategy:** `pointerdown` stores `pointerId` + touch position as the center; `setPointerCapture()` ensures `pointermove` fires even if the finger drifts outside the element. `pointermove` computes delta from center, clamps to 60px radius, normalizes to `[-1, 1]`, calls the prop. `pointerup` / `pointercancel` releases and calls with `{x:0, y:0}`.
+- **Coordinate convention (important for Chunk 5 wiring):** `x` = rightward, `y` = downward (standard DOM Y-axis, NOT inverted). Chunk 5 will invert Y for both sticks: left-stick `y` positive → move backward; right-stick `y` positive → look down. Documented in a code comment in the file.
+- **iOS safe-area:** bottom margin uses `calc(1.5rem + env(safe-area-inset-bottom))` via inline style (Tailwind doesn't expose this token by default).
+- `setPointerCapture` is wrapped in try/catch — it can throw if the pointer is already gone.
+- MobileJoysticks interaction tests deferred to Chunk 6 (combined with WorldVisitor integration tests — pointer-event simulation is heavyweight).
+
+**`ControlsHint.tsx`** (`src/components/world-visitor/ControlsHint.tsx`)
+- `"use client"` component. Props: `{ isTouchDevice: boolean }`.
+- Renders a centered bottom banner (max 600px, 80% width, `rgba(0,0,0,0.7)` background) explaining walk controls. Disappears once dismissed or after 12 seconds.
+- Content: desktop → WASD/mouse/Shift/ESC instructions; touch → left-stick/right-stick/tap-exit instructions.
+- `role="status" aria-live="polite"` on the banner — announces to screen readers without interrupting.
+- On mount: `localStorage.getItem("forge-walk-hint-dismissed") === "true"` → renders nothing (the `useState` initializer calls `readDismissed()` directly so there is no visible flash for returning users).
+- On dismiss ("Got it" button): writes `localStorage.setItem("forge-walk-hint-dismissed", "true")` + clears the auto-dismiss timer + sets dismissed state.
+- Auto-dismiss: `setTimeout(12_000)` in `useEffect`; also writes localStorage so refresh won't re-show.
+- All `localStorage` calls are wrapped in try/catch (private browsing / `SecurityError`).
+- z-index: 60 (above joysticks at 50, below future modal overlays).
+- Outer container: `pointer-events: none`; banner itself: `pointer-events: auto` (so the dismiss button is clickable).
+- Test file: `src/components/world-visitor/ControlsHint.test.ts` (7 tests covering: readDismissed false when unset, false on unexpected values, true on "true", writeDismissed sets key, subsequent read returns true, auto-dismiss timer fires after 12s, timer cleanup prevents duplicate write on early dismiss).
+
+### Sub-slice 9.1 Chunk 7 — WorldVisitor wiring + Copy reframe (shipped 2026-05-26)
+
+**Renderer swap:** `/world/[id]/page.tsx` now imports `WorldVisitorClient` (from `@/components/world-visitor/WorldVisitorClient`) instead of `SceneGraphRendererClient`. Scene-graph worlds (`world.sceneGraph !== null`) render through the walk-mode visitor experience. Legacy worlds (`sceneGraph === null`) still use `WorldViewerClient` unchanged. Import of `SceneGraphRendererClient` removed from the page.
+
+**Copy: world vs model** — all user-facing strings have been shifted from "3D model" / "View" framing to "world" / "Enter" / "Explore" / "space":
+
+| File | Change |
+|---|---|
+| `src/app/world/[id]/page.tsx` | OG/Twitter fallback description: `"A 3D world on FORGE by @{user}"` → `"Visit {title} — a world by @{user} on FORGE."` |
+| `src/app/upload/UploadForm.tsx` | Step 1 heading: `"Step 1 of 5 — Select your 3D model"` → `"Step 1 of 5 — Pick your world file (.glb)"` |
+| `src/app/upload/UploadForm.tsx` | Step 1 input label: `"3D model file"` → `"World file (.glb)"` |
+| `src/app/upload/UploadForm.tsx` | TOS checkbox: `"I confirm I own the rights to this 3D model..."` → `"I confirm I own the rights to the contents of this world..."` |
+| `src/app/upload/UploadForm.tsx` | TOS error message: `"...rights to share this model"` → `"...rights to share this world"` |
+| `src/app/upload/page.tsx` | `metadata.description`: `"Upload your .glb file and publish a new 3D world to FORGE."` → `"Upload a .glb to publish your world — a space others can enter and explore."` |
+| `src/app/upload/page.tsx` | Page intro text: `"Share a 3D world you've made..."` → `"Upload a .glb to publish your world — a space others can enter and explore."` |
+| `src/app/page.tsx` | Recent-tab empty state body: `"Upload a .glb world you've made."` → `"Upload your first world — a space others can enter and explore."` |
+| `src/app/search/page.tsx` | Default OG description: `"Search 3D worlds on FORGE..."` → `"Search worlds on FORGE..."` |
+
+Accessibility-critical `ariaLabel="3D world: {title}"` strings on the viewer containers were deliberately left unchanged — the "3D" qualifier is clarity for screen readers, not marketing copy.
+
+### Still to come (Phase 2 / Slice 9)
+
+- Touch-friendly editor controls (tablets day-one, phones graceful-degradation)
 - See `ROADMAP.md` Phase 2 for details

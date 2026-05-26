@@ -40,7 +40,7 @@ export async function generateMetadata({
   const hasTag = tag.length > 0;
 
   let title = "Search worlds";
-  let description = "Search 3D worlds on FORGE by title, description, or tag.";
+  let description = "Search worlds on FORGE by title, description, or tag.";
 
   if (hasQ && hasTag) {
     title = `Results for "${q}" in #${tag}`;
